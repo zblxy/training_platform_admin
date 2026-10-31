@@ -1,3 +1,4 @@
+import { CertificateExport } from './CertificateExport';
 import { useEffect, useState, type FormEvent } from 'react';
 import { isCertificateListResponse, type CertificateListResponse, type CertificateSortField } from '@training/shared';
 
@@ -59,6 +60,7 @@ export function CertificateList({ token, onTokenChange: setToken, refreshKey }: 
       <label>Sort direction<select value={sortDirection} onChange={event => { setSortDirection(event.target.value as 'asc' | 'desc'); setPage(1); }}><option value="desc">Descending</option><option value="asc">Ascending</option></select></label>
       <label>Rows per page<select value={pageSize} onChange={event => { setPageSize(Number(event.target.value)); setPage(1); }}>{[10, 20, 50, 100].map(size => <option key={size} value={size}>{size}</option>)}</select></label>
     </div>
+    <CertificateExport key={token} token={token} filters={{ search, sortBy, sortDirection }} enabled={Boolean(token) && state === 'ready'} />
     <p role="status" aria-live="polite">{state === 'idle' ? 'Supply a generated admin token to load certificates.' : state === 'loading' ? 'Loading certificates…' : state === 'ready' ? `${result?.total ?? 0} certificates found.` : ''}</p>
     {state === 'unauthorized' && <p role="alert">The admin token is invalid or no longer authorized. Supply a valid token.</p>}
     {state === 'error' && <div role="alert">Unable to load certificates. <button onClick={() => setAttempt(value => value + 1)}>Retry certificates</button></div>}

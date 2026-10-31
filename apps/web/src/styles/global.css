@@ -18,3 +18,6 @@ th, td { padding: .8rem; border-bottom: 1px solid #d6dde8; }
 th { background: #eef2f7; }
 .serial { font-family: monospace; overflow-wrap: anywhere; }
 [role="alert"] { color: #9c2424; }
+
+.certificate-export { margin-block: 1rem; padding: 1rem; border: 1px solid #8795a5; border-radius: 0.5rem; }
+.certificate-export progress { width: min(100%, 30rem); height: 1.25rem; }

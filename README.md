@@ -172,7 +172,7 @@ Apply migrations explicitly and run the demo seed against a development database
 | `sortBy` | `issuedAt` (default), `learnerName`, `serialNumber`, or `courseTitle`. |
 | `sortDirection` | `asc` or `desc` (default). Certificate ID ascending breaks ties. |
 
-The response contains `items`, `total`, `page`, and `pageSize`. Each item includes ID, serial number, learner name, course title, UTC issuance timestamp, historical tenant-local issue date (`YYYY-MM-DD`), and active/revoked status. Both statuses appear; the list has no revocation, export, or status filter. Course-based issuance is available in the bulk issuance section. Unknown parameters and invalid values return 400; missing/invalid credentials return 401. Count and rows share a repeatable-read snapshot. Offset pages can shift between requests if certificates are added or related names change.
+The response contains `items`, `total`, `page`, and `pageSize`. Each item includes ID, serial number, learner name, course title, UTC issuance timestamp, historical tenant-local issue date (`YYYY-MM-DD`), and active/revoked status. Both statuses appear; the list has no revocation or status filter. CSV export is available for all matching rows. Course-based issuance is available in the bulk issuance section. Unknown parameters and invalid values return 400; missing/invalid credentials return 401. Count and rows share a repeatable-read snapshot. Offset pages can shift between requests if certificates are added or related names change.
 
 Database verification: `TEST_DATABASE_URL=<isolated PostgreSQL URL> npm run test:db` creates temporary schemas and applies real migration files, including an upgrade containing active and revoked certificates. Browser verification: `npm run test:e2e` builds first and starts API/Vite using isolated ports; certificate and bulk issuance UI tests intercept API responses, while database tests exercise real HTTP authorization, issuance, concurrency, partial failures, and data access. Set `PLAYWRIGHT_EXECUTABLE_PATH` if the managed environment supplies Chromium separately.
 
@@ -193,3 +193,38 @@ The request reads enrollment membership, learner names, and existing certificate
 This implementation processes learners sequentially in one HTTP request. There is no background worker, durable batch record, progress polling, or recovery of previous per-request outcomes after reload. Keep the page open for results. A lost response or navigation can leave the result unknown while server processing continues; retrying is safe because certificate issuance is idempotent. Large courses may outlast infrastructure request timeouts. Results are held in browser memory and cleared when changing the course or token. No schema migration or business-data cache is needed.
 
 Verification uses the existing commands: `npm test`, `TEST_DATABASE_URL=<isolated PostgreSQL URL> npm run test:db`, and `npm run test:e2e`. Database tests create temporary schemas on the explicitly selected isolated database; browser tests start local API/Vite processes and use intercepted feature responses. Do not point the database suite at shared or production data.
+
+## Certificate CSV export
+
+Apply the additive export migration explicitly before using this feature. `Export CSV` captures the **applied** search and sort, excludes pagination, and includes both active and revoked certificates. Changing the list afterward does not change an existing export. Columns are learner name, course title, serial number, and historical tenant-local issue date (`YYYY-MM-DD`). Files use UTF-8 with a BOM, CRLF records, quoted cells, escaped quotes, and an apostrophe before spreadsheet formula prefixes (including prefixes after whitespace). Empty results produce a header-only CSV.
+
+All export endpoints require the existing bearer actor guard. Jobs, status, and downloads are scoped to both the tenant and requesting admin. Tokens stay in Authorization headers, never download URLs. Status and downloads are not cacheable.
+
+- `POST /api/certificates/exports`: accepts only `search`, `sortBy`, and `sortDirection`, with the same validation/defaults as the list; returns **202** with job status. Repeated active requests with the same filters reuse the job; different filters return **409** until it finishes. The queue admits at most 20 queued/running jobs; excess starts return **429**.
+- `GET /api/certificates/exports/:id`: returns ID, captured filters, `queued`/`running`/`completed`/`failed` status, processed/total row counts, creation/expiry timestamps, and a safe error. Invalid IDs return **400**; foreign, missing, or expired jobs return **404**.
+- `GET /api/certificates/exports/:id/download`: streams the completed CSV as an attachment. Unfinished/failed jobs return **409**. Downloads remain available for **24 hours after completion**; expired artifacts are removed by the worker.
+
+A worker thread starts with each API process. PostgreSQL stores durable jobs and CSV chunks; the disposable Redis cache is not involved. Database advisory locks and leases serialize generation across replicas, and partial unique indexing prevents duplicate active jobs per admin. Interrupted jobs restart from a fresh snapshot after their 90-second lease expires, with at most three attempts. Partial chunks are discarded before retry. A retry may include changes made since the interrupted attempt. No automatic retry occurs for a generation failure reported as `failed`; the UI offers a new export.
+
+Generation uses a repeatable-read database snapshot taken when the worker begins processing, a joined SQL cursor fetching 1,000 rows at a time, and the same list ordering (certificate ID ascending breaks ties). Progress is counted from persisted output rows. CSV serialization runs outside the HTTP event loop. Files are limited to 128 MiB, with a 2 MiB limit per encoded row/chunk; oversized exports fail with a recoverable error. Generation transactions are bounded to 55 seconds, with 45-second statement timeouts. Downloads stream with backpressure and a 60-second timeout. A repeatable-read download snapshot prevents cleanup from removing later chunks mid-download. The browser polls status every 500 ms, supports retrying status checks, and retains no job/token state after reload.
+
+Verification prerequisites: Node/npm versions above, installed dependencies, Chromium for browser tests, and an **explicit isolated PostgreSQL URL** whose user may create/drop temporary schemas. Tests apply all migrations twice and remove only their own schemas and temporary token files. They never migrate the configured development database.
+
+```sh
+TEST_DATABASE_URL='<isolated PostgreSQL URL>' npm run test:db
+npm run test:e2e
+TEST_DATABASE_URL='<isolated PostgreSQL URL>' npm run test:export:performance
+```
+
+The performance command seeds an isolated East tenant with exactly 100,000 certificates, retains West fixtures, and measures every sort field in both directions. Each measurement includes POST acceptance, worker queue pickup, generation, persistence, and polling until ready; file download is checked separately. The acceptance target is **under 60 seconds for one active export on the local development stack**, excluding download time. Results report Node version, host CPU/memory, and per-sort timings; concurrent-load and other hardware guarantees require separate measurement.
+
+Measured on 2026-10-31 with Node 24.22.1, PostgreSQL 17.6 in an isolated local container, and an Intel Core i7-14700HX host exposing 28 logical CPUs and 8 GiB RAM. List and health requests ran during generation; all succeeded, and the maximum observed health response time was 5 ms. Each downloaded CSV contained exactly 100,000 unique certificate serials. These are local measurements, not production capacity guarantees.
+
+| Sort | Ascending | Descending |
+| --- | --- | --- |
+| Issuance time | 1.202 s | 1.169 s |
+| Learner name | 1.178 s | 1.296 s |
+| Serial number | 1.280 s | 1.318 s |
+| Course title | 1.048 s | 1.047 s |
+
+The export migration creates new tables/indexes and does not rewrite certificate or audit history. Before production rollout, take and verify a database backup, apply migrations as a separate authorized deployment step, and investigate any failed migration before retrying. Application rollback can leave these additive tables in place; retain exports until their retention window ends rather than dropping data during rollback.
