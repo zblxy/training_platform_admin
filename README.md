@@ -24,12 +24,12 @@ npm run dev --workspace @training/api
 npm run dev --workspace @training/web
 ```
 
-Open http://localhost:5173. Vite proxies `/api` to localhost:3000; override `API_PROXY_TARGET` for another API location. The API reads root `.env`, validates `NODE_ENV`, `PORT`, and a PostgreSQL `DATABASE_URL` before listening, and exits on startup failure without logging secrets. It does not connect to the database yet. API changes compile before the process watcher reloads. Shared contract changes require `npm run build -w @training/shared` and restarting consumers.
+Open http://localhost:5173. Vite proxies `/api` to localhost:3000; override `API_PROXY_TARGET` for another API location. The API reads root `.env`, validates `NODE_ENV`, `PORT`, a PostgreSQL `DATABASE_URL`, and `REDIS_URL` before listening, and exits on startup failure without logging secrets. It does not connect to the database yet. API changes compile before the process watcher reloads. Shared contract changes require `npm run build -w @training/shared` and restarting consumers.
 
 ## Workspace and checks
 
 - `apps/web`: React/Vite placeholder, loading/error/retry states, Playwright workflows.
-- `apps/api`: NestJS health controller, global validation/error handling, environment configuration, Prisma schema/tooling and HTTP/startup tests.
+- `apps/api`: NestJS health controller, global validation/error handling, environment configuration, Prisma schema/tooling, a reusable Redis cache module, and HTTP/startup/cache tests.
 - `packages/shared`: public health contract and response validator; no server/database internals.
 - `infra/docker`: production reverse proxy configuration.
 - `scripts`: development process supervision.
@@ -56,26 +56,49 @@ To exercise an existing web service, set `E2E_BASE_URL=http://127.0.0.1:<port>`;
 
 ## Local containers
 
-Docker with Compose **2.24.4+** is required. The checked-in configuration uses Node 24.22.1, PostgreSQL 17.6 and an unprivileged Nginx runtime. App containers run non-root; dependencies are installed reproducibly in build stages.
+Docker with Compose **2.24.4+** is required. The checked-in configuration uses Node 24.22.1, PostgreSQL 17.6, Redis 7.4.8, and an unprivileged Nginx runtime. App containers run non-root; dependencies are installed reproducibly in build stages.
 
 ```sh
-docker compose config --quiet
-docker compose up --build -d
-docker compose ps
-docker compose logs -f api web
-docker compose down
+docker compose -p training-platform-dev config --quiet
+docker compose -p training-platform-dev up --build -d --wait
+docker compose -p training-platform-dev ps
+docker compose -p training-platform-dev logs -f api web redis
+docker compose -p training-platform-dev down
 ```
 
-Local ports default to web 5173, API 3000, PostgreSQL 5432, bound to loopback. Set `WEB_PORT`, `API_PORT`, `DB_PORT` and use `docker compose -p <isolated-name>` to avoid conflicts. The named `postgres_data` volume persists across stops. Never use `down --volumes` without explicit authorization. Source mounts enable development reload; dependency changes require rebuilds. Compose waits for PostgreSQL readiness and API health before starting dependent services; health checks retry transient startup failures. There is no database-dependent API operation yet.
+Local ports default to web 5173, API 3000, PostgreSQL 5432, and Redis 6379, bound to loopback. Set `WEB_PORT`, `API_PORT`, `DB_PORT`, `REDIS_PORT` and use `docker compose -p <isolated-name>` to avoid conflicts. The named `postgres_data` volume persists across stops. Never use `down --volumes` without explicit authorization. Source mounts enable development reload; dependency changes require rebuilds. Compose waits for PostgreSQL and Redis readiness and API health before starting dependent services; health checks retry transient startup failures. There is no database-dependent API operation yet.
+
+## Redis cache
+
+Redis is disposable cache storage: snapshots and AOF are disabled, `/data` uses tmpfs, and no Redis data volume is created. The server uses a 128 MB `maxmemory` limit with `allkeys-lru` eviction and a 256 MB container limit for overhead. Values may be evicted before TTL or lost on restart; authoritative data belongs in PostgreSQL. See [Redis eviction documentation](https://redis.io/docs/latest/develop/reference/eviction/).
+
+Host development uses `REDIS_URL`; containers use `COMPOSE_REDIS_URL` with hostname `redis`. Defaults in `.env.example` are local-only. If changing `REDIS_PASSWORD`, update both URLs with URI-encoded credentials. Production requires matching `PRODUCTION_REDIS_PASSWORD` and `PRODUCTION_REDIS_URL`, with no default password or host port. `rediss://` is supported for an external TLS-enabled Redis endpoint; the bundled Redis server uses plain Redis on its internal network.
+
+Import `CacheModule` from `apps/api/src/common/cache/cache.module.ts` in a consuming NestJS module and inject `CacheService`. It exposes `get(key): Promise<string | null>`, `set(key, value, ttlSeconds): Promise<boolean>`, and `delete(key): Promise<boolean>`. Values are strings; callers choose serialization, cache keys, TTLs, and invalidation rules when feature scopes are approved. Every write requires a positive integer TTL in seconds, and keys are prefixed with `training:cache:`. No feature data or HTTP responses are cached automatically.
+
+Connections are lazy, shared across concurrent operations, and destroyed when the Nest application closes. Connection/handshake and command waits are each bounded at 500 ms. Offline command queuing and automatic reconnect loops are disabled; a later operation reconnects after a lost connection. A failed read returns `null`; failed writes/deletes return `false`, so callers can fall back to their data source. Invalid TTLs throw. Cache failures are handled without logging keys, payloads, URLs, or credentials. `/api/health` remains a process health check and does not establish Redis connectivity.
+
+`npm test` includes cache outage and Redis URL validation checks without requiring Redis. Run the Redis integration suite against a local or isolated test instance:
+
+```sh
+docker compose -p training-platform-dev up -d --wait redis
+TEST_REDIS_URL=redis://:training_cache_local_only@127.0.0.1:6379/0 npm run test:cache -w @training/api
+```
+
+The suite uses unique temporary keys with TTLs, removes only its own keys, and verifies sharing, expiry, empty strings, deletion, authentication rejection, Nest injection, and shutdown cleanup. It requires `TEST_REDIS_URL` explicitly and never flushes the cache. `npm run test:config` also checks Redis production isolation, required credentials, eviction, and disabled persistence.
+
+The development stack runs under `training-platform-dev`. The default project's older PostgreSQL 18 volume is preserved and is incompatible with the scaffold's PostgreSQL 17 image; use the project name shown above rather than reusing that volume.
 
 ## Production image and local smoke workflow
 
-Set all required variables through a secure environment or an untracked env file (use `--env-file` consistently). Unlike development, no default production credentials, app mounts, watch commands, direct API ports or database host ports are present in the merged configuration.
+Set all required variables through a secure environment or an untracked env file (use `--env-file` consistently). Unlike development, no default production credentials, app mounts, watch commands, direct API ports, database host ports, or Redis host ports are present in the merged configuration.
 
 ```sh
 export PRODUCTION_DB_USER='<database user>'
 export PRODUCTION_DB_PASSWORD='<strong password>'
 export PRODUCTION_DB_NAME='<database name>'
+export PRODUCTION_REDIS_PASSWORD='<strong cache password>'
+export PRODUCTION_REDIS_URL='redis://:<encoded cache password>@redis:6379/0'
 export PRODUCTION_DATABASE_URL='postgresql://<encoded user>:<encoded password>@db:5432/<database name>'
 export PRODUCTION_BIND_ADDRESS=127.0.0.1
 export PRODUCTION_WEB_PORT=25173

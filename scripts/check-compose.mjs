@@ -4,19 +4,28 @@ const settings = {
   PRODUCTION_DB_USER: 'config_check', PRODUCTION_DB_PASSWORD: 'config_check_only',
   PRODUCTION_DB_NAME: 'config_check', PRODUCTION_DATABASE_URL: 'postgresql://config_check:config_check_only@db:5432/config_check',
   PRODUCTION_BIND_ADDRESS: '127.0.0.1', PRODUCTION_WEB_PORT: '25173',
+  PRODUCTION_REDIS_PASSWORD: 'cache_config_check_only',
+  PRODUCTION_REDIS_URL: 'redis://:cache_config_check_only@redis:6379/0',
 };
 const args = ['compose', '--env-file', '/dev/null', '-f', 'compose.yaml', '-f', 'compose.production.yaml', 'config', '--format', 'json'];
 function render(env) { return spawnSync('docker', args, { env: { ...process.env, ...env }, encoding: 'utf8' }); }
 const result = render(settings);
 assert.equal(result.status, 0, result.stderr);
 assert.ok(!result.stdout.includes('training_local'), 'Development credentials must be absent');
+assert.ok(!result.stdout.includes('training_cache_local_only'), 'Development cache credentials must be absent');
 const { services } = JSON.parse(result.stdout);
 for (const name of ['api', 'web']) {
   assert.equal(services[name].build.target, 'runtime');
   assert.equal(services[name].volumes?.length ?? 0, 0);
   assert.equal(services[name].command ?? null, null);
 }
-for (const name of ['api', 'db']) assert.equal(services[name].ports?.length ?? 0, 0);
+for (const name of ['api', 'db', 'redis']) assert.equal(services[name].ports?.length ?? 0, 0);
+assert.equal(services.redis.environment.REDIS_PASSWORD, settings.PRODUCTION_REDIS_PASSWORD);
+assert.equal(services.api.environment.REDIS_URL, settings.PRODUCTION_REDIS_URL);
+assert.equal(services.api.depends_on.redis.condition, 'service_healthy');
+assert.match(services.redis.command.at(-1), /--save '' --appendonly no/);
+assert.match(services.redis.command.at(-1), /--maxmemory 128mb --maxmemory-policy allkeys-lru/);
+assert.equal(services.redis.volumes?.length ?? 0, 0);
 assert.equal(services.web.ports.length, 1);
 assert.equal(services.web.ports[0].target, 8080);
 assert.equal(services.api.environment.NODE_ENV, 'production');

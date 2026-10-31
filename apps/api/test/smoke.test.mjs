@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createApp } from '../dist/app.js';
-import { readEnvironment } from '../dist/config/environment.js';
+import { readEnvironment, readRedisUrl } from '../dist/config/environment.js';
 import { isHealthResponse } from '@training/shared';
 const database = 'postgresql://local:local@localhost:5432/local';
 test('health over HTTP and consistent unknown route errors', async () => {
@@ -33,4 +33,13 @@ test('invalid configuration exits before listening and hides secrets', () => {
 test('public health contract rejects malformed payloads', () => {
   for (const value of [null, {}, { status: 'error' }, 'ok']) assert.equal(isHealthResponse(value), false);
   assert.equal(isHealthResponse({ status: 'ok' }), true);
+});
+test('Redis configuration validates URLs and requires production credentials', () => {
+  for (const value of ['http://secret:password@localhost/0', 'not-a-url', 'redis://localhost/not-a-db', 'redis://localhost/0?password=secret']) {
+    assert.throws(() => readRedisUrl({ REDIS_URL: value }), /REDIS_URL/);
+  }
+  for (const value of [undefined, '', 'redis://redis:6379/0']) {
+    assert.throws(() => readRedisUrl({ NODE_ENV: 'production', REDIS_URL: value }), /REDIS_URL/);
+  }
+  assert.equal(readRedisUrl({ REDIS_URL: 'rediss://:encoded%40password@redis:6379/1' }), 'rediss://:encoded%40password@redis:6379/1');
 });

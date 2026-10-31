@@ -12,7 +12,7 @@ These instructions apply to the entire repository. This project is an internal a
 
 ## Repository status
 
-The repository now implements a feature-neutral React/Vite web page, NestJS API health endpoint, shared public health contract, empty PostgreSQL Prisma schema, smoke tests, and development/production container configurations. No business features, authentication, models, migrations or seeds are implemented. Implementation changes remain uncommitted until authorized.
+The repository now implements a feature-neutral React/Vite web page, NestJS API health endpoint, shared public health contract, empty PostgreSQL Prisma schema, a reusable Redis cache module, smoke tests, and development/production container configurations. No business features, authentication, models, migrations or seeds are implemented.
 
 Runtime: Node.js 24.22.1 and npm 11.19.1, pinned in manifests, `.nvmrc` and Dockerfiles. Prepend `/home/zblxy/.nvm/versions/node/v24.22.1/bin` to PATH in this managed environment; do not use system Node 18.
 
@@ -22,6 +22,7 @@ Runtime: Node.js 24.22.1 and npm 11.19.1, pinned in manifests, `.nvmrc` and Dock
 - Frontend: React and Vite.
 - Backend: NestJS with global server-side validation/error handling; authorization is deferred until protected features are approved.
 - Database: PostgreSQL, managed through Prisma schema and migrations.
+- Cache: Redis with mandatory write TTLs, bounded waits, eviction, and graceful cache misses on outages. No persistence or automatic business-data caching.
 - Workspace tooling: npm workspaces with a root lockfile (commit only when authorized).
 - Browser verification: Playwright.
 - Infrastructure and packaging: Docker and Docker Compose for local services and deployable application images.
@@ -46,6 +47,8 @@ apps/
     src/
       modules/health/health.controller.ts
       common/filters/http-error.filter.ts
+      common/cache/cache.module.ts
+      common/cache/cache.service.ts
       config/environment.ts
       app.module.ts
       app.ts
@@ -53,6 +56,8 @@ apps/
     prisma/schema.prisma
     prisma.config.ts
     test/smoke.test.mjs
+    test/cache.test.mjs
+    test/integration/cache.test.mjs
     Dockerfile
     package.json
     tsconfig.json
@@ -86,7 +91,7 @@ Keep feature-specific web components, hooks, API bindings, and tests within thei
 
 ## Commands
 
-The scaffold implements the commands below except entries explicitly marked deferred. See README.md for environment and service prerequisites. Use workspace names `@training/web`, `@training/api`, and `@training/shared`, and Compose service names `web`, `api`, and `db` when scaffolding. Check actual scripts before running commands and keep this list accurate.
+The scaffold implements the commands below except entries explicitly marked deferred. See README.md for environment and service prerequisites. Use workspace names `@training/web`, `@training/api`, and `@training/shared`, and Compose service names `web`, `api`, `db`, and `redis` when scaffolding. Check actual scripts before running commands and keep this list accurate.
 
 | Purpose | Command |
 | --- | --- |
@@ -101,17 +106,18 @@ The scaffold implements the commands below except entries explicitly marked defe
 | Lint | `npm run lint` |
 | Type check | `npm run typecheck` |
 | Run unit tests | `npm test` |
+| Redis integration tests (explicit TEST_REDIS_URL required) | `npm run test:cache --workspace @training/api` |
 | Run API/database integration tests against an isolated test database | Deferred until models exist; no integration script |
 | Run browser workflows | `npm run test:e2e --workspace @training/web` |
 | Generate Prisma client (unneeded model-free artifacts with empty schema) | `npm run db:generate --workspace @training/api` |
 | Create and apply a development migration (after models exist) | `npm run db:migrate:dev --workspace @training/api -- --name <name>` |
 | Apply committed migrations | `npm run db:migrate:deploy --workspace @training/api` |
 | Seed development/test data explicitly | Deferred until approved seed data exists; no seed script |
-| Validate local Compose configuration | `docker compose config --quiet` |
-| Build and start local containers | `docker compose up --build -d` |
-| Inspect container status | `docker compose ps` |
-| Follow application logs | `docker compose logs -f api web` |
-| Stop local containers, preserving volumes | `docker compose down` |
+| Validate local Compose configuration | `docker compose -p training-platform-dev config --quiet` |
+| Build and start local containers | `docker compose -p training-platform-dev up --build -d --wait` |
+| Inspect container status | `docker compose -p training-platform-dev ps` |
+| Follow application logs | `docker compose -p training-platform-dev logs -f api web redis` |
+| Stop local containers, preserving volumes | `docker compose -p training-platform-dev down` |
 | Validate production Compose configuration | `docker compose -f compose.yaml -f compose.production.yaml config --quiet` |
 | Build production images | `docker compose -f compose.yaml -f compose.production.yaml build` |
 | Apply migrations as an authorized deployment step | `docker compose -f compose.yaml -f compose.production.yaml run --rm api npm run db:migrate:deploy --workspace @training/api` |
@@ -132,6 +138,8 @@ Root scripts must explicitly orchestrate workspace tasks in the correct order. I
 - Use multi-stage Dockerfiles with reproducible dependency installation. Run application containers as non-root users and copy only required runtime artifacts.
 - Exclude secrets, local dependencies, Git metadata, and unnecessary build artifacts through `.dockerignore`.
 - Validate configuration at startup. Keep production secrets outside images and source control; browser environment values are public.
+- Preserve the existing PostgreSQL 18 volume; use Compose project `training-platform-dev` for the running PostgreSQL 17 development stack.
+- Redis is disposable cache storage: disable persistence, bound memory, require production credentials, and keep production Redis ports internal. Callers must tolerate misses and failed invalidation and define key scopes and TTLs when implementing features.
 - Use named volumes for PostgreSQL persistence. Add database and application health checks; account for dependency readiness and transient connection failures.
 - Keep development bind mounts, hot reload, debugging ports, and development credentials out of the effective production configuration. Verify merged Compose configuration before deployment.
 - Apply committed migrations as an explicit deployment step, rather than an automatic action in each application replica. Document backup, migration failure handling, and rollback considerations before production shipment.

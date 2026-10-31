@@ -7,6 +7,11 @@ services:
       POSTGRES_DB: ${PRODUCTION_DB_NAME:?Set PRODUCTION_DB_NAME}
     ports: !reset []
     restart: unless-stopped
+  redis:
+    environment: !override
+      REDIS_PASSWORD: ${PRODUCTION_REDIS_PASSWORD:?Set PRODUCTION_REDIS_PASSWORD}
+    ports: !reset []
+    restart: unless-stopped
   api:
     build:
       target: runtime
@@ -14,6 +19,7 @@ services:
       NODE_ENV: production
       PORT: "3000"
       DATABASE_URL: ${PRODUCTION_DATABASE_URL:?Set PRODUCTION_DATABASE_URL using db host and matching credentials}
+      REDIS_URL: ${PRODUCTION_REDIS_URL:?Set PRODUCTION_REDIS_URL using redis host and matching encoded credentials}
     volumes: !reset []
     ports: !reset []
     restart: unless-stopped

@@ -8,5 +8,15 @@ export function readEnvironment(env: NodeJS.ProcessEnv) {
     const url = new URL(env.DATABASE_URL ?? '');
     if (!['postgresql:', 'postgres:'].includes(url.protocol) || !url.hostname || !url.pathname.slice(1) || !url.username || !url.password) throw new Error();
   } catch { throw new Error('DATABASE_URL must be a PostgreSQL URL with host, database and credentials'); }
-  return { mode, port };
+  return { mode, port, redisUrl: readRedisUrl(env) };
+}
+
+export function readRedisUrl(env: NodeJS.ProcessEnv): string {
+  const value = env.REDIS_URL ?? (env.NODE_ENV === 'production' ? '' : 'redis://:training_cache_local_only@127.0.0.1:6379/0');
+  try {
+    const url = new URL(value);
+    if (!['redis:', 'rediss:'].includes(url.protocol) || !url.hostname || url.hash || url.search || !/^\/(\d+)?$/.test(url.pathname || '/')) throw new Error();
+    if (env.NODE_ENV === 'production' && !url.password) throw new Error();
+    return value;
+  } catch { throw new Error('REDIS_URL must be a Redis URL; production requires credentials'); }
 }
