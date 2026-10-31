@@ -1,0 +1,32 @@
+{
+  "name": "@training/api",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "node ../../scripts/dev-api.mjs",
+    "build": "tsc -p tsconfig.json",
+    "start": "node --env-file-if-exists=../../.env dist/main.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.tools.json",
+    "test": "npm run build && node --test test/*.test.mjs",
+    "db:validate": "prisma validate",
+    "db:generate": "prisma generate",
+    "db:migrate:dev": "prisma migrate dev",
+    "db:migrate:deploy": "prisma migrate deploy"
+  },
+  "dependencies": {
+    "@nestjs/common": "12.3.2",
+    "@nestjs/core": "12.3.2",
+    "@nestjs/platform-express": "12.3.2",
+    "@training/shared": "0.0.0",
+    "class-transformer": "0.5.1",
+    "class-validator": "0.14.3",
+    "dotenv": "17.4.2",
+    "prisma": "7.10.1",
+    "reflect-metadata": "0.2.2",
+    "rxjs": "7.8.2"
+  },
+  "devDependencies": {
+    "@types/express": "5.0.6"
+  },
+  "type": "module"
+}

@@ -1,0 +1,8 @@
+// No business models have been approved. Client generation/migrations are deferred.
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+datasource db {
+  provider = "postgresql"
+}

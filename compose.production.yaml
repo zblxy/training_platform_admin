@@ -1,0 +1,29 @@
+# Compose 2.24.4+ required for !override and !reset.
+services:
+  db:
+    environment: !override
+      POSTGRES_USER: ${PRODUCTION_DB_USER:?Set PRODUCTION_DB_USER}
+      POSTGRES_PASSWORD: ${PRODUCTION_DB_PASSWORD:?Set PRODUCTION_DB_PASSWORD}
+      POSTGRES_DB: ${PRODUCTION_DB_NAME:?Set PRODUCTION_DB_NAME}
+    ports: !reset []
+    restart: unless-stopped
+  api:
+    build:
+      target: runtime
+    environment: !override
+      NODE_ENV: production
+      PORT: "3000"
+      DATABASE_URL: ${PRODUCTION_DATABASE_URL:?Set PRODUCTION_DATABASE_URL using db host and matching credentials}
+    volumes: !reset []
+    ports: !reset []
+    restart: unless-stopped
+  web:
+    build:
+      target: runtime
+    environment: !reset {}
+    volumes: !reset []
+    ports: !override
+      - "${PRODUCTION_BIND_ADDRESS:?Set PRODUCTION_BIND_ADDRESS}:${PRODUCTION_WEB_PORT:?Set PRODUCTION_WEB_PORT}:8080"
+    healthcheck:
+      test: [CMD, wget, -q, --spider, http://127.0.0.1:8080/]
+    restart: unless-stopped
