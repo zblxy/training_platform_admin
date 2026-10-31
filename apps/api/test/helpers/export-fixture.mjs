@@ -34,8 +34,8 @@ export async function exportFixture({ large = false } = {}) {
     const east = credentials.find(row => row.tenant === 'East'), west = credentials.find(row => row.tenant === 'West');
     app = await createApp(); await app.listen(0, '127.0.0.1');
     const base = await app.getUrl();
-    async function request(path, { method = 'GET', body, token = east.token } = {}) {
-      return fetch(`${base}/api/${path}`, { method, headers: { Authorization: `Bearer ${token}`, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+    async function request(path, { method = 'GET', body, token = east.token, headers = {}, signal = AbortSignal.timeout(70000) } = {}) {
+      return fetch(`${base}/api/${path}`, { method, signal, headers: { ...headers, Authorization: `Bearer ${token}`, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
     }
     async function start(filters = {}) {
       const response = await request('certificates/exports', { method: 'POST', body: { search: '', sortBy: 'issuedAt', sortDirection: 'desc', ...filters } });

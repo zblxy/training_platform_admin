@@ -169,10 +169,10 @@ Apply migrations explicitly and run the demo seed against a development database
 | `search` | Up to 200 characters; trimmed; case-insensitive partial learner name OR full serial match (serial input is normalized to uppercase). SQL wildcard characters are literal. |
 | `page` | Positive integer, default 1, maximum 1,000,000. |
 | `pageSize` | Positive integer, default 20, maximum 100. |
-| `sortBy` | `issuedAt` (default), `learnerName`, `serialNumber`, or `courseTitle`. |
+| `sortBy` | `issuedAt` (default; sorts by the saved tenant-local calendar date), `learnerName`, `serialNumber`, or `courseTitle`. |
 | `sortDirection` | `asc` or `desc` (default). Certificate ID ascending breaks ties. |
 
-The response contains `items`, `total`, `page`, and `pageSize`. Each item includes ID, serial number, learner name, course title, UTC issuance timestamp, historical tenant-local issue date (`YYYY-MM-DD`), and active/revoked status. Both statuses appear; select a serial number to view details and revoke an active certificate. CSV export is available for all matching rows; the list has no status filter. Course-based issuance is available in the bulk issuance section. Unknown parameters and invalid values return 400; missing/invalid credentials return 401. Count and rows share a repeatable-read snapshot. Offset pages can shift between requests if certificates are added or related names change.
+The response contains `items`, `total`, `page`, and `pageSize`. Each item includes ID, serial number, learner name, course title, UTC issuance timestamp, historical tenant-local issue date (`YYYY-MM-DD`), saved `issueTimeZone`, and active/revoked status. The browser displays issuance as `YYYY-MM-DD HH:mm` in that saved zone, independent of the browser zone and later tenant settings. Both statuses appear; select a serial number to view details and revoke an active certificate. CSV export is available for all matching rows; the list has no status filter. Course-based issuance is available in the bulk issuance section. Unknown parameters and invalid values return 400; missing/invalid credentials return 401. Count and rows share a repeatable-read snapshot. Offset pages can shift between requests if certificates are added or related names change.
 
 Database verification: `TEST_DATABASE_URL=<isolated PostgreSQL URL> npm run test:db` creates temporary schemas and applies real migration files, including an upgrade containing active and revoked certificates. Browser verification: `npm run test:e2e` builds first and starts API/Vite using isolated ports; certificate and bulk issuance UI tests intercept API responses, while database tests exercise real HTTP authorization, issuance, concurrency, partial failures, and data access. Set `PLAYWRIGHT_EXECUTABLE_PATH` if the managed environment supplies Chromium separately.
 
@@ -188,16 +188,22 @@ Supply a generated admin token in the existing API token control, choose a cours
 - Every outcome includes `enrollmentId`, `learnerId`, `learnerName`, and `status`. An `issued` outcome includes `certificateId` and `serialNumber`. A `skipped` outcome includes reason `incomplete`, `already_issued`, or `revoked`. A `failed` outcome includes the safe reason `issuance_failed`.
 - Missing/invalid credentials return 401, malformed input or extra body fields return 400, and missing or foreign-tenant courses return 404. An empty course returns zero totals and an empty outcome array.
 
-The request reads enrollment membership, learner names, and existing certificates in one tenant-scoped joined query, avoiding a database parameter per learner on large courses. Existing permanent certificates are skipped from this snapshot; active/revoked skip reasons reflect the snapshot. Each remaining learner uses an independent transaction with the existing enrollment row lock. Eligibility and issued/skipped classification for those learners are decided inside that transaction; overlapping requests cannot issue duplicate certificates or duplicate audit events. One failed learner does not roll back other learners. Retry the course to attempt failed learners again; existing certificates, including revoked certificates, are skipped permanently. Enrollments added later require another request.
+An optional `Idempotency-Key` header accepts 1–128 ASCII letters, digits, `.`, `_`, `:`, or `-`. Keys are scoped to the authenticated tenant and admin. A key binds to the validated payload (currently only `courseId`, normalized to lowercase). A different course with the same key returns **409**, including while the original request is running, without changing its result. Unknown body fields are invalid requests and return **400** before execution. Key records do not expire automatically.
 
-This implementation processes learners sequentially in one HTTP request. There is no background worker, durable batch record, progress polling, or recovery of previous per-request outcomes after reload. Keep the page open for results. A lost response or navigation can leave the result unknown while server processing continues; retrying is safe because certificate issuance is idempotent. Large courses may outlast infrastructure request timeouts. Results are held in browser memory and cleared when changing the course or token. No schema migration or business-data cache is needed.
+Keyed requests atomically persist an operation and its enrollment/name snapshot. Each learner's issuance, database-generated audit, and saved outcome commit together under row locks. Concurrent requests, other API instances, and retries after a process restart reuse those outcomes. An interrupted operation resumes its unfinished items when the same request/key is submitted again; there is no background bulk worker. All callers receive the same ordered outcome list, including original `issued` classifications and safe failures. Eligibility is checked when each unfinished item runs. Enrollments added after the snapshot require a new key. A confirmed failure is saved too: start a new operation/key to retry failed learners.
+
+Requests without a key retain the original behavior: membership, names, and existing certificates are read in a tenant-scoped joined query; existing certificates are skipped and each remaining enrollment uses an independent issuance transaction. These requests remain safe against duplicate issuance, but do not replay their previous outcomes.
+
+The browser generates one key per submission, retains it after an uncertain response, and starts a fresh key after a confirmed result or a course/token change. Keys and results are held in browser memory and are lost on reload; API clients can retain a key to resume after reload. Processing remains sequential within each HTTP request and large courses may outlast infrastructure timeouts. No business-data cache is used.
+
+Apply the additive bulk-idempotency migration before running the new API. It adds operation/item tables with tenant-scoped requester/course references and an index for local-date sorting. Index creation can block writes; schedule it for database size and take a verified backup first. If migration fails, investigate Prisma migration status and resolve the failure before retrying. Retain the additive tables/index during application rollback. An older application cannot honor keyed replay, so stop keyed submissions before rolling back; do not delete certificate/audit history or saved operations.
 
 Verification uses the existing commands: `npm test`, `TEST_DATABASE_URL=<isolated PostgreSQL URL> npm run test:db`, and `npm run test:e2e`. Database tests create temporary schemas on the explicitly selected isolated database; browser tests start local API/Vite processes and use intercepted feature responses. Do not point the database suite at shared or production data.
 
 ### Certificate detail and revocation
 
 Select a certificate serial number to open its detail panel. It shows the serial,
-course, learner, historical tenant-local issue date and time zone, status, and
+course, learner, historical tenant-local issue date/time and saved time zone, status, and
 issuance/revocation audit history (timestamps shown in UTC). Active certificates
 can be revoked with a required reason and an explicit confirmation. Revocation is
 permanent; repeated requests preserve the first reason, actor, timestamp and audit
@@ -250,3 +256,19 @@ Measured on 2026-10-31 with Node 24.22.1, PostgreSQL 17.6 in an isolated local c
 | Course title | 1.048 s | 1.047 s |
 
 The export migration creates new tables/indexes and does not rewrite certificate or audit history. Before production rollout, take and verify a database backup, apply migrations as a separate authorized deployment step, and investigate any failed migration before retrying. Application rollback can leave these additive tables in place; retain exports until their retention window ends rather than dropping data during rollback.
+
+## Verification acceptance runner
+
+`npm run test:acceptance` builds shared contracts, API, and browser assets in dependency order, then runs all seven acceptance scenarios with a real local API, PostgreSQL, CSV downloads, and Chromium. It does not use the running development API or `.demo-tokens.json`. Node.js 24.22.1/npm 11.19.1, installed dependencies, an isolated PostgreSQL database with schema-creation/migration privileges, and a Playwright-compatible Chromium installation are required. Redis is not needed for these workflows. Install Chromium with `npx playwright install chromium` or provide `PLAYWRIGHT_EXECUTABLE_PATH`.
+
+```sh
+TEST_DATABASE_URL=postgresql://<user>:<password>@127.0.0.1:<test-port>/<test-db> \
+PLAYWRIGHT_EXECUTABLE_PATH=/path/to/chromium \
+npm run test:acceptance
+```
+
+Use only a disposable test database, never shared or production data. The runner requires `TEST_DATABASE_URL`, creates a UUID-named schema, applies real migrations twice to verify repeatability, seeds fresh Alice/East and Bob/West credentials, and removes only its generated schema and temporary credential file during normal teardown. Interrupting/killing the process can leave its temporary schema/file; no shared data or persistent volumes are removed. Local API and browser-preview servers use ephemeral loopback ports.
+
+The seven reported cases cover tenant boundaries and no-write rejection; sequential/concurrent same-key replay; key conflicts; mixed learner outcomes; exact January local times plus both Sydney DST transitions and local-date sorting; two filtered exports over a 100,000-certificate East dataset with tied course-title sort values; and repeated revocation audits. The export scenario compares all cells against an independently specified SQL query, checks identical repeated order, and requests the list while the first job is observed running. Each export must reach completed status within 60 seconds measured from before the creation request; fixture generation and CSV download/comparison are outside that generation deadline. Output includes matching-row counts, export durations, and concurrent list latency. Performance is specific to the machine/database where the command runs.
+
+The command exits nonzero for any failing scenario or fixture/browser setup failure; failures are not skipped. `npm run test:db` additionally covers saved-operation recovery across API instances/restarts and rollback when issuance or outcome persistence fails. The regular browser suite verifies retry-key reuse after a lost response.

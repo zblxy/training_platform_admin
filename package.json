@@ -23,7 +23,8 @@
     "test:db": "npm run build -w @training/shared && npm run test:db -w @training/api",
     "db:seed": "npm run build -w @training/shared && npm run db:seed -w @training/api",
     "db:seed:large": "npm run build -w @training/shared && npm run db:seed:large -w @training/api",
-    "test:export:performance": "npm run build -w @training/shared && npm run test:export:performance -w @training/api"
+    "test:export:performance": "npm run build -w @training/shared && npm run test:export:performance -w @training/api",
+    "test:acceptance": "npm run build && npm run test:acceptance -w @training/api"
   },
   "devDependencies": {
     "@types/node": "24.19.2",

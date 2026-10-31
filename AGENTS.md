@@ -12,7 +12,7 @@ These instructions apply to the entire repository. This project is an internal a
 
 ## Repository status
 
-The repository implements a React/Vite certificate list, NestJS health and bearer-authenticated actor endpoints, tenant-scoped Prisma models, transactional certificate issuance/revocation services, database-generated audit events, a repeatable demo seed, Redis cache tooling, and container configurations. The read-only certificate list API and UI support search, sorting, and pagination. Course-based bulk issuance supports per-learner outcomes and duplicate submission prevention. Certificate CSV export uses PostgreSQL-backed background jobs, progress polling, and authenticated downloads retained for 24 hours. Certificate detail and confirmed revocation are available through authenticated tenant-scoped HTTP routes and the browser. See docs/data-model.md for approved model invariants.
+The repository implements a React/Vite certificate list, NestJS health and bearer-authenticated actor endpoints, tenant-scoped Prisma models, transactional certificate issuance/revocation services, database-generated audit events, a repeatable demo seed, Redis cache tooling, and container configurations. The read-only certificate list API and UI support search, sorting, and pagination. Course-based bulk issuance supports per-learner outcomes, duplicate submission prevention, and durable actor-scoped idempotency-key replay. List/detail display historical tenant-local date/time; list and CSV date sorting use the saved local calendar date. Certificate CSV export uses PostgreSQL-backed background jobs, progress polling, and authenticated downloads retained for 24 hours. Certificate detail and confirmed revocation are available through authenticated tenant-scoped HTTP routes and the browser. See docs/data-model.md for approved model invariants.
 
 Runtime: Node.js 24.22.1 and npm 11.19.1, pinned in manifests, `.nvmrc` and Dockerfiles. Prepend `/home/zblxy/.nvm/versions/node/v24.22.1/bin` to PATH in this managed environment; do not use system Node 18.
 
@@ -108,6 +108,7 @@ The scaffold implements the commands below except entries explicitly marked defe
 | Run unit tests | `npm test` |
 | Redis integration tests (explicit TEST_REDIS_URL required) | `npm run test:cache --workspace @training/api` |
 | Run database integration tests (explicit isolated TEST_DATABASE_URL required) | `npm run test:db` |
+| Run all seven verification acceptance scenarios (isolated TEST_DATABASE_URL and Chromium required) | `npm run test:acceptance` |
 | Benchmark 100,000-row exports (explicit isolated TEST_DATABASE_URL required) | `npm run test:export:performance` |
 | Run browser workflows | `npm run test:e2e --workspace @training/web` |
 | Generate Prisma client (also run by build/typecheck/dev) | `npm run db:generate --workspace @training/api` |

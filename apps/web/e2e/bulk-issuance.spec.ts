@@ -145,3 +145,24 @@ test('paginates 100,000 outcomes, supports keyboard navigation and resets for ne
   await expect(table).toHaveCount(0);
   await expect(nav).toHaveCount(0);
 });
+
+test('uncertain response retains its key; a confirmed result starts a fresh key', async ({ page }) => {
+  const keys: string[] = [];
+  await page.route('**/api/certificates/bulk-issuance', async route => {
+    keys.push(route.request().headers()['idempotency-key'] ?? '');
+    if (keys.length === 1) await route.abort('failed');
+    else await route.fulfill({ json: result });
+  });
+  await setup(page);
+  await page.getByRole('combobox', { name: 'Course', exact: true }).selectOption(courseId);
+  const button = page.getByRole('button', { name: 'Issue to eligible learners' });
+  await button.click();
+  await expect(page.getByText(/Unable to confirm issuance/)).toBeVisible();
+  await button.click();
+  await expect(page.getByText('Completed: 1 issued, 1 skipped, 1 failed.')).toBeVisible();
+  await button.click();
+  await expect.poll(() => keys.length).toBe(3);
+  expect(keys[0]).toMatch(/^[0-9a-f-]{36}$/);
+  expect(keys[1]).toBe(keys[0]);
+  expect(keys[2]).not.toBe(keys[1]);
+});

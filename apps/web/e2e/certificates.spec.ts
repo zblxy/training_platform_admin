@@ -3,13 +3,13 @@ const token = 'a'.repeat(43);
 test.beforeEach(async ({ page }) => {
   await page.route('**/api/certificates/courses', route => route.fulfill({ json: { items: [] } }));
 });
-const item = (index: number) => ({ id: String(index), serialNumber: `CERT-${String(index).padStart(32, '0')}`, learnerName: `Learner ${index}`, courseTitle: 'Safety', issuedAt: '2026-01-01T01:00:00.000Z', issueDate: '2025-12-31', status: index === 0 ? 'revoked' : 'active' });
+const item = (index: number) => ({ id: String(index), serialNumber: `CERT-${String(index).padStart(32, '0')}`, learnerName: `Learner ${index}`, courseTitle: 'Safety', issuedAt: '2026-01-01T01:00:00.000Z', issueDate: '2025-12-31', issueTimeZone: 'America/New_York', status: index === 0 ? 'revoked' : 'active' });
 async function supplyToken(page: Page) {
   if (await page.locator('details').getAttribute('open') === null) await page.getByText('API token', { exact: true }).click();
   await page.getByLabel('Generated admin token').fill(token);
   await page.getByRole('button', { name: 'Use token' }).click();
 }
-test('search, sort, paging, token handling and date-only display', async ({ page }) => {
+test('search, sort, paging, token handling and tenant-local date/time display', async ({ page }) => {
   await page.route('**/api/certificates?**', async route => {
     expect(route.request().headers().authorization).toBe(`Bearer ${token}`);
     const query = new URL(route.request().url()).searchParams;
@@ -24,7 +24,7 @@ test('search, sort, paging, token handling and date-only display', async ({ page
   await supplyToken(page);
   await expect(page.getByText('25 certificates found.', { exact: true })).toBeVisible();
   await expect(page.getByRole('cell', { name: 'Revoked', exact: true })).toBeVisible();
-  await expect(page.getByRole('cell', { name: '2025-12-31', exact: true }).first()).toBeVisible();
+  await expect(page.getByRole('cell', { name: '2025-12-31 20:00', exact: true }).first()).toBeVisible();
   await page.getByRole('button', { name: 'Next page' }).click();
   await expect(page.getByText('Page 2 of 2')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Next page' })).toBeDisabled();

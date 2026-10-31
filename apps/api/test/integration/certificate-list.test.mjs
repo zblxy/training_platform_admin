@@ -92,7 +92,7 @@ test('list and counts are tenant scoped; response excludes private database fiel
   assert.ok(Math.abs(clock.instant.getTime() - Date.now()) < 5000, 'database timestamps preserve UTC instants even when the server defaults to a non-UTC zone');
   const data = await list(); assert.equal(data.total, 25); assert.equal(data.items.length, 20); assert.equal(data.page, 1); assert.equal(data.pageSize, 20);
   assert.ok(data.items.every(row => ['Safety', 'Leadership'].includes(row.courseTitle)));
-  assert.deepEqual(Object.keys(data.items[0]).sort(), ['id','serialNumber','learnerName','courseTitle','issuedAt','issueDate','status'].sort());
+  assert.deepEqual(Object.keys(data.items[0]).sort(), ['id','serialNumber','learnerName','courseTitle','issuedAt','issueDate','issueTimeZone','status'].sort());
   const foreign = await db.certificate.findFirstOrThrow({ where: { tenantId: other.tenantId } });
   assert.equal((await list(`search=${foreign.serialNumber}`)).total, 0);
 });
@@ -111,7 +111,7 @@ test('every allowed sort is stable in both directions across pages, including ti
     const all = await list(`${query}&pageSize=100`);
     const first = await list(`${query}&pageSize=10`), second = await list(`${query}&pageSize=10&page=2`), third = await list(`${query}&pageSize=10&page=3`);
     assert.deepEqual([...first.items, ...second.items, ...third.items], all.items);
-    const keys = all.items.map(row => row[sortBy]);
+    const keys = all.items.map(row => row[sortBy === 'issuedAt' ? 'issueDate' : sortBy]);
     assert.deepEqual(keys, [...keys].sort((a,b) => a < b ? (sortDirection === 'asc' ? -1 : 1) : a > b ? (sortDirection === 'asc' ? 1 : -1) : 0));
   }
   const beyond = await list('page=99'); assert.equal(beyond.items.length, 0); assert.equal(beyond.total, 25);

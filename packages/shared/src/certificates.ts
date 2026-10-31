@@ -7,6 +7,7 @@ export interface CertificateListItem {
   courseTitle: string;
   issuedAt: string;
   issueDate: string;
+  issueTimeZone: string;
   status: 'active' | 'revoked';
 }
 export interface CertificateListResponse {
@@ -26,7 +27,7 @@ export function isCertificateListResponse(value: unknown): value is CertificateL
       const entry = item as Record<string, unknown>;
       return typeof entry.id === 'string' && typeof entry.serialNumber === 'string' &&
         typeof entry.learnerName === 'string' && typeof entry.courseTitle === 'string' &&
-        typeof entry.issuedAt === 'string' && typeof entry.issueDate === 'string' &&
+        typeof entry.issuedAt === 'string' && typeof entry.issueDate === 'string' && typeof entry.issueTimeZone === 'string' &&
         (entry.status === 'active' || entry.status === 'revoked');
     });
 }
@@ -37,7 +38,6 @@ export interface CertificateAuditEntry {
   occurredAt: string;
 }
 export interface CertificateDetail extends CertificateListItem {
-  issueTimeZone: string;
   revokedAt: string | null;
   revocationReason: string | null;
   auditEvents: CertificateAuditEntry[];

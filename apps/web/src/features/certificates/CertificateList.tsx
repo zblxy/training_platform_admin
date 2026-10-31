@@ -3,6 +3,7 @@ import { CertificateExport } from './CertificateExport';
 import { isCertificateListResponse, type CertificateListResponse, type CertificateSortField } from '@training/shared';
 
 import { CertificateDetail } from './CertificateDetail';
+import { localDateTime } from './local-date-time';
 
 interface CertificateListProps { token: string; onTokenChange: (token: string) => void; refreshKey: number }
 export function CertificateList({ token, onTokenChange: setToken, refreshKey }: CertificateListProps) {
@@ -61,7 +62,7 @@ export function CertificateList({ token, onTokenChange: setToken, refreshKey }: 
     </form>
     <div className="controls">
       <label>Sort by<select value={sortBy} onChange={event => { setSortBy(event.target.value as CertificateSortField); setPage(1); }}>
-        <option value="issuedAt">Issuance time</option><option value="learnerName">Learner name</option><option value="serialNumber">Serial number</option><option value="courseTitle">Course</option>
+        <option value="issuedAt">Issue date</option><option value="learnerName">Learner name</option><option value="serialNumber">Serial number</option><option value="courseTitle">Course</option>
       </select></label>
       <label>Sort direction<select value={sortDirection} onChange={event => { setSortDirection(event.target.value as 'asc' | 'desc'); setPage(1); }}><option value="desc">Descending</option><option value="asc">Ascending</option></select></label>
       <label>Rows per page<select value={pageSize} onChange={event => { setPageSize(Number(event.target.value)); setPage(1); }}>{[10, 20, 50, 100].map(size => <option key={size} value={size}>{size}</option>)}</select></label>
@@ -74,7 +75,7 @@ export function CertificateList({ token, onTokenChange: setToken, refreshKey }: 
       {result.items.length === 0 ? <p>{result.total === 0 ? 'No certificates match your search.' : 'No certificates on this page. Return to an earlier page.'}</p> : <div className="table-scroll"><table>
         <caption>Issued certificates</caption>
         <thead><tr><th scope="col">Serial number</th><th scope="col">Learner</th><th scope="col">Course</th><th scope="col">Issue date</th><th scope="col">Status</th></tr></thead>
-        <tbody>{result.items.map(item => <tr key={item.id}><td className="serial"><button onClick={event => { selectedTrigger.current = event.currentTarget; setSelectedId(item.id); }}>{item.serialNumber}</button></td><td>{item.learnerName}</td><td>{item.courseTitle}</td><td>{item.issueDate}</td><td>{item.status === 'active' ? 'Active' : 'Revoked'}</td></tr>)}</tbody>
+        <tbody>{result.items.map(item => <tr key={item.id}><td className="serial"><button onClick={event => { selectedTrigger.current = event.currentTarget; setSelectedId(item.id); }}>{item.serialNumber}</button></td><td>{item.learnerName}</td><td>{item.courseTitle}</td><td><time dateTime={item.issuedAt} title={item.issueTimeZone}>{localDateTime(item.issuedAt, item.issueTimeZone)}</time></td><td>{item.status === 'active' ? 'Active' : 'Revoked'}</td></tr>)}</tbody>
       </table></div>}
       <nav aria-label="Certificate pagination" className="controls">
         <button disabled={page <= 1} onClick={() => setPage(value => value - 1)}>Previous page</button>

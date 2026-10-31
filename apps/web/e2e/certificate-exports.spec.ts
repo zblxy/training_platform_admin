@@ -7,7 +7,7 @@ async function open(page: Page) {
   await page.route('**/api/certificates/courses', route => route.fulfill({ json: { items: [] } }));
   await page.route('**/api/certificates?**', route => {
     const params = new URL(route.request().url()).searchParams;
-    return route.fulfill({ json: { page: Number(params.get('page')), pageSize: Number(params.get('pageSize')), total: 25, items: [{ id: '1', learnerName: 'Alex', courseTitle: 'Safety', serialNumber: 'CERT-1', issuedAt: '2026-01-01T01:00:00Z', issueDate: '2025-12-31', status: 'active' }] } });
+    return route.fulfill({ json: { page: Number(params.get('page')), pageSize: Number(params.get('pageSize')), total: 25, items: [{ id: '1', learnerName: 'Alex', courseTitle: 'Safety', serialNumber: 'CERT-1', issuedAt: '2026-01-01T01:00:00Z', issueDate: '2025-12-31', issueTimeZone: 'America/New_York', status: 'active' }] } });
   });
   await page.goto('/');
   await page.getByLabel('Generated admin token').fill(token);
