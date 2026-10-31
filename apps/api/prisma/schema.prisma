@@ -35,6 +35,7 @@ model Admin {
   revoked Certificate[] @relation("Revoker")
   auditEvents AuditEvent[]
   exports CertificateExport[]
+  bulkOperations BulkIssuanceOperation[]
   @@unique([tenantId, id])
 }
 model Course {
@@ -44,6 +45,7 @@ model Course {
   createdAt DateTime @default(now()) @db.Timestamptz(3)
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   enrollments Enrollment[]
+  bulkOperations BulkIssuanceOperation[]
   @@unique([tenantId, id])
 }
 model Learner {
@@ -91,6 +93,7 @@ model Certificate {
   @@unique([tenantId, id])
   @@unique([tenantId, enrollmentId])
   @@index([tenantId, issuedAt])
+  @@index([tenantId, issueDate, id])
 }
 model AuditEvent {
   id String @id @default(uuid()) @db.Uuid
@@ -133,4 +136,27 @@ model CertificateExportChunk {
   content Bytes
   job CertificateExport @relation(fields: [exportId], references: [id], onDelete: Cascade)
   @@id([exportId, sequence])
+}
+
+model BulkIssuanceOperation {
+  id String @id @default(uuid()) @db.Uuid
+  tenantId String @db.Uuid
+  requestedById String @db.Uuid
+  key String @db.VarChar(128)
+  courseId String @db.Uuid
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  requester Admin @relation(fields: [tenantId, requestedById], references: [tenantId, id], onDelete: Restrict)
+  course Course @relation(fields: [tenantId, courseId], references: [tenantId, id], onDelete: Restrict)
+  items BulkIssuanceItem[]
+  @@unique([tenantId, requestedById, key])
+}
+
+model BulkIssuanceItem {
+  operationId String @db.Uuid
+  enrollmentId String @db.Uuid
+  learnerId String @db.Uuid
+  learnerName String
+  outcome Json?
+  operation BulkIssuanceOperation @relation(fields: [operationId], references: [id], onDelete: Restrict)
+  @@id([operationId, enrollmentId])
 }

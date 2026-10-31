@@ -26,7 +26,7 @@ test('detail, keyboard cancellation, confirmation, audit history and list refres
   await setup(page);
   await page.route('**/api/certificates?**', route => route.fulfill({ json: { items: [revoked ? changed : initial], total: 1, page: 1, pageSize: 20 } }));
   await open(page);
-  await expect(region(page)).toContainText('2025-12-31 (America/New_York)');
+  await expect(region(page)).toContainText('2025-12-31 20:00 (America/New_York)');
   await expect(region(page)).toContainText('Issued by Admin');
   await page.getByRole('button', { name: 'Revoke certificate', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Cancel', exact: true })).toBeFocused();

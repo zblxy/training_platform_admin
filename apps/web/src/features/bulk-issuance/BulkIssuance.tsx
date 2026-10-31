@@ -13,6 +13,7 @@ export function BulkIssuance({ token, onComplete }: { token: string; onComplete:
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const submitting = useRef(false);
+  const requestKey = useRef<string | null>(null);
   const mounted = useRef(false);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   useEffect(() => {
@@ -35,20 +36,22 @@ export function BulkIssuance({ token, onComplete }: { token: string; onComplete:
     event.preventDefault();
     if (submitting.current || !token || !courseId) return;
     submitting.current = true;
+    requestKey.current ??= crypto.randomUUID();
     setPending(true); setError(''); setResult(null); setPage(1);
     try {
       const response = await fetch('/api/certificates/bulk-issuance', { method: 'POST',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ courseId }) });
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', 'Idempotency-Key': requestKey.current }, body: JSON.stringify({ courseId }) });
       if (!mounted.current) return;
       if (response.status === 400) throw new Error('The issuance request is invalid. Reload courses and select a course again. No certificates were issued.');
       if (response.status === 401) throw new Error('The admin token is invalid or no longer authorized.');
+      if (response.status === 409) throw new Error('This request key was used for another request. Select the course again to start a new operation.');
       if (response.status === 404) throw new Error('The selected course is no longer available. Reload courses and select again.');
-      if (!response.ok) throw new Error('Unable to confirm issuance. Some certificates may have been issued. Retrying the course safely skips existing certificates.');
+      if (!response.ok) throw new Error('Unable to confirm issuance. Some certificates may have been issued. Retrying returns the same operation result.');
       const data: unknown = await response.json();
-      if (!isBulkIssuanceResponse(data) || data.courseId !== courseId) throw new Error('Invalid issuance response. Some certificates may have been issued. Retrying safely skips existing certificates.');
-      if (mounted.current) { setResult(data); onComplete(); }
+      if (!isBulkIssuanceResponse(data) || data.courseId !== courseId) throw new Error('Invalid issuance response. Some certificates may have been issued. Retrying returns the same operation result.');
+      if (mounted.current) { setResult(data); requestKey.current = null; onComplete(); }
     } catch (cause: unknown) {
-      if (mounted.current) setError(cause instanceof Error && cause.message !== 'Failed to fetch' ? cause.message : 'Unable to confirm issuance. Some certificates may have been issued. Retrying safely skips existing certificates.');
+      if (mounted.current) setError(cause instanceof Error && cause.message !== 'Failed to fetch' ? cause.message : 'Unable to confirm issuance. Some certificates may have been issued. Retrying returns the same operation result.');
     } finally {
       submitting.current = false;
       if (mounted.current) setPending(false);
@@ -64,9 +67,9 @@ export function BulkIssuance({ token, onComplete }: { token: string; onComplete:
       {courseState === 'loading' && <p role="status">Loading courses…</p>}
       {courseState === 'unauthorized' && <p role="alert">Supply a valid admin token to load courses.</p>}
       {courseState === 'error' && <p role="alert">Unable to load courses.</p>}
-      <button type="button" disabled={pending || courseState === 'loading'} onClick={() => { setCourseId(''); setResult(null); setPage(1); setError(''); setAttempt(value => value + 1); }}>Reload courses</button>
+      <button type="button" disabled={pending || courseState === 'loading'} onClick={() => { requestKey.current = null; setCourseId(''); setResult(null); setPage(1); setError(''); setAttempt(value => value + 1); }}>Reload courses</button>
       {courseState === 'ready' && (courses.length === 0 ? <p>No courses available.</p> : <form onSubmit={event => void submit(event)} className="controls" aria-busy={pending}>
-        <label>Course<select value={courseId} disabled={pending} required onChange={event => { setCourseId(event.target.value); setResult(null); setPage(1); setError(''); }}>
+        <label>Course<select value={courseId} disabled={pending} required onChange={event => { requestKey.current = null; setCourseId(event.target.value); setResult(null); setPage(1); setError(''); }}>
           <option value="">Select a course</option>
           {courses.map(course => <option key={course.id} value={course.id}>{course.title}</option>)}
         </select></label>

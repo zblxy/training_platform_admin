@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { isCertificateDetail, type CertificateDetail as Detail } from '@training/shared';
+import { localDateTime } from './local-date-time';
 
 interface Props { id: string; token: string; onClose: () => void; onRevoked: () => void }
 export function CertificateDetail({ id, token, onClose, onRevoked }: Props) {
@@ -81,7 +82,7 @@ export function CertificateDetail({ id, token, onClose, onRevoked }: Props) {
         <dt>Serial number</dt><dd className="serial">{detail.serialNumber}</dd>
         <dt>Course</dt><dd>{detail.courseTitle}</dd>
         <dt>Learner</dt><dd>{detail.learnerName}</dd>
-        <dt>Issue date</dt><dd>{detail.issueDate} ({detail.issueTimeZone})</dd>
+        <dt>Issue date</dt><dd><time dateTime={detail.issuedAt}>{localDateTime(detail.issuedAt, detail.issueTimeZone)}</time> ({detail.issueTimeZone})</dd>
         <dt>Status</dt><dd>{detail.status === 'active' ? 'Active' : 'Revoked'}</dd>
         {detail.revocationReason !== null && <><dt>Revocation reason</dt><dd>{detail.revocationReason}</dd></>}
       </dl>

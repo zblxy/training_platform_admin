@@ -42,7 +42,7 @@ export function exportFilter(tenantId: string, search: string): Prisma.Sql {
 }
 export function exportOrder(sortBy: string, sortDirection: string): Prisma.Sql {
   const fields: Record<string, Prisma.Sql> = {
-    issuedAt: Prisma.sql`c."issuedAt"`, learnerName: Prisma.sql`l.name`,
+    issuedAt: Prisma.sql`c."issueDate"`, learnerName: Prisma.sql`l.name`,
     serialNumber: Prisma.sql`c."serialNumber"`, courseTitle: Prisma.sql`co.title`,
   };
   const field = fields[sortBy];
