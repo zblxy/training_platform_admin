@@ -53,12 +53,27 @@ export class CertificatesService {
   async bulkIssue(actor: Actor, courseId: string): Promise<BulkIssuanceResponse> {
     const course = await this.db.course.findFirst({ where: { id: courseId, tenantId: actor.tenantId }, select: { id: true } });
     if (!course) throw new NotFoundException('Course not found');
-    // Snapshot membership once; each enrollment's eligibility is checked under its own lock.
-    const enrollments = await this.db.enrollment.findMany({ where: { tenantId: actor.tenantId, courseId },
-      orderBy: { id: 'asc' }, select: { id: true, learner: { select: { id: true, name: true } } } });
+    // Read the membership snapshot with a join: Prisma's relation loader generates
+    // an IN parameter per learner, exceeding PostgreSQL's limit for large courses.
+    const enrollments = await this.db.$queryRaw<{
+      id: string; learnerId: string; learnerName: string;
+      certificateId: string | null; revokedAt: Date | null;
+    }[]>`SELECT e.id, l.id AS "learnerId", l.name AS "learnerName",
+        c.id AS "certificateId", c."revokedAt"
+      FROM "Enrollment" e
+      JOIN "Learner" l ON l.id = e."learnerId" AND l."tenantId" = e."tenantId"
+      LEFT JOIN "Certificate" c ON c."enrollmentId" = e.id AND c."tenantId" = e."tenantId"
+      WHERE e."tenantId" = ${actor.tenantId}::uuid AND e."courseId" = ${courseId}::uuid
+      ORDER BY e.id ASC`;
     const outcomes: BulkIssuanceOutcome[] = [];
     for (const enrollment of enrollments) {
-      const learner = { enrollmentId: enrollment.id, learnerId: enrollment.learner.id, learnerName: enrollment.learner.name };
+      const learner = { enrollmentId: enrollment.id, learnerId: enrollment.learnerId, learnerName: enrollment.learnerName };
+      // Certificates are permanent, so an existing one can safely be skipped from
+      // the snapshot. New issuance still checks eligibility/existence under lock.
+      if (enrollment.certificateId) {
+        outcomes.push({ ...learner, status: 'skipped', reason: enrollment.revokedAt ? 'revoked' : 'already_issued' });
+        continue;
+      }
       try {
         const result = await this.issueWithOutcome(actor, enrollment.id);
         outcomes.push(result.created

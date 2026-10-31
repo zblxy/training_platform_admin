@@ -10,6 +10,8 @@ export function BulkIssuance({ token, onComplete }: { token: string; onComplete:
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
   const [result, setResult] = useState<BulkIssuanceResponse | null>(null);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
   const submitting = useRef(false);
   const mounted = useRef(false);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
@@ -33,11 +35,12 @@ export function BulkIssuance({ token, onComplete }: { token: string; onComplete:
     event.preventDefault();
     if (submitting.current || !token || !courseId) return;
     submitting.current = true;
-    setPending(true); setError(''); setResult(null);
+    setPending(true); setError(''); setResult(null); setPage(1);
     try {
       const response = await fetch('/api/certificates/bulk-issuance', { method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ courseId }) });
       if (!mounted.current) return;
+      if (response.status === 400) throw new Error('The issuance request is invalid. Reload courses and select a course again. No certificates were issued.');
       if (response.status === 401) throw new Error('The admin token is invalid or no longer authorized.');
       if (response.status === 404) throw new Error('The selected course is no longer available. Reload courses and select again.');
       if (!response.ok) throw new Error('Unable to confirm issuance. Some certificates may have been issued. Retrying the course safely skips existing certificates.');
@@ -51,6 +54,9 @@ export function BulkIssuance({ token, onComplete }: { token: string; onComplete:
       if (mounted.current) setPending(false);
     }
   }
+  const pages = result ? Math.max(1, Math.ceil(result.total / pageSize)) : 1;
+  const start = (page - 1) * pageSize;
+  const visibleOutcomes = result?.outcomes.slice(start, start + pageSize) ?? [];
   return <section aria-labelledby="bulk-issuance-heading">
     <h2 id="bulk-issuance-heading">Bulk issuance</h2>
     <p>Choose a course to issue certificates to all completed learners. Existing certificates, including revoked certificates, are skipped. Results stay available until you change course, token, or reload.</p>
@@ -58,9 +64,9 @@ export function BulkIssuance({ token, onComplete }: { token: string; onComplete:
       {courseState === 'loading' && <p role="status">Loading courses…</p>}
       {courseState === 'unauthorized' && <p role="alert">Supply a valid admin token to load courses.</p>}
       {courseState === 'error' && <p role="alert">Unable to load courses.</p>}
-      <button type="button" disabled={pending || courseState === 'loading'} onClick={() => { setCourseId(''); setResult(null); setError(''); setAttempt(value => value + 1); }}>Reload courses</button>
+      <button type="button" disabled={pending || courseState === 'loading'} onClick={() => { setCourseId(''); setResult(null); setPage(1); setError(''); setAttempt(value => value + 1); }}>Reload courses</button>
       {courseState === 'ready' && (courses.length === 0 ? <p>No courses available.</p> : <form onSubmit={event => void submit(event)} className="controls" aria-busy={pending}>
-        <label>Course<select value={courseId} disabled={pending} required onChange={event => { setCourseId(event.target.value); setResult(null); setError(''); }}>
+        <label>Course<select value={courseId} disabled={pending} required onChange={event => { setCourseId(event.target.value); setResult(null); setPage(1); setError(''); }}>
           <option value="">Select a course</option>
           {courses.map(course => <option key={course.id} value={course.id}>{course.title}</option>)}
         </select></label>
@@ -68,11 +74,23 @@ export function BulkIssuance({ token, onComplete }: { token: string; onComplete:
       </form>)}
       <p role="status" aria-live="polite">{pending ? 'Issuing certificates… Keep this page open for results.' : result ? `Completed: ${result.issued} issued, ${result.skipped} skipped, ${result.failed} failed.` : ''}</p>
       {error && <p role="alert">{error}</p>}
-      {result && (result.total === 0 ? <p>No learners are enrolled in this course.</p> : <div className="table-scroll"><table>
+      {result && (result.total === 0 ? <p>No learners are enrolled in this course.</p> : <>
+        <div className="controls"><label>Results per page<select value={pageSize} onChange={event => { setPageSize(Number(event.target.value)); setPage(1); }}>
+          {[10, 20, 50, 100].map(size => <option key={size} value={size}>{size}</option>)}
+        </select></label></div>
+        <div className="table-scroll"><table>
         <caption>Bulk issuance results</caption>
         <thead><tr><th scope="col">Learner</th><th scope="col">Outcome</th><th scope="col">Details</th></tr></thead>
-        <tbody>{result.outcomes.map(outcome => <tr key={outcome.enrollmentId}><td>{outcome.learnerName}</td><td>{outcome.status}</td><td>{outcome.status === 'issued' ? outcome.serialNumber : reasons[outcome.reason]}</td></tr>)}</tbody>
-      </table></div>)}
+        <tbody>{visibleOutcomes.map(outcome => <tr key={outcome.enrollmentId}><td>{outcome.learnerName}</td><td>{outcome.status}</td><td>{outcome.status === 'issued' ? outcome.serialNumber : reasons[outcome.reason]}</td></tr>)}</tbody>
+      </table></div>
+      <nav aria-label="Bulk issuance result pagination" className="controls">
+        <button type="button" disabled={page <= 1} onClick={() => setPage(1)}>First page</button>
+        <button type="button" disabled={page <= 1} onClick={() => setPage(value => value - 1)}>Previous page</button>
+        <span aria-live="polite">Page {page} of {pages}. Showing {start + 1}–{Math.min(start + pageSize, result.total)} of {result.total} results.</span>
+        <button type="button" disabled={page >= pages} onClick={() => setPage(value => value + 1)}>Next page</button>
+        <button type="button" disabled={page >= pages} onClick={() => setPage(pages)}>Last page</button>
+      </nav>
+      </>)}
     </>}
   </section>;
 }

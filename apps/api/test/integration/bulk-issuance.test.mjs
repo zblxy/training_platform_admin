@@ -9,6 +9,7 @@ import { CertificatesService } from '../../dist/modules/certificates/certificate
 import { hashToken } from '../../dist/modules/auth/auth.module.js';
 import { createApp } from '../../dist/app.js';
 import { isBulkIssuanceResponse } from '@training/shared';
+import { demoId } from '../../prisma/demo-data.mjs';
 if (!process.env.TEST_DATABASE_URL) throw new Error('TEST_DATABASE_URL must point to an isolated test database');
 const schema = `bulk_${randomUUID().replaceAll('-', '')}`;
 const url = new URL(process.env.TEST_DATABASE_URL); url.searchParams.set('schema', schema);
@@ -31,9 +32,9 @@ before(async () => {
     });
   }
   actor = await admin('A', token); other = await admin('B', randomBytes(32).toString('base64url'));
-  course = await db.course.create({ data: { tenantId: actor.tenantId, title: 'Safety' } });
+  course = await db.course.create({ data: { id: demoId('east:Safety'), tenantId: actor.tenantId, title: 'Safety' } });
   emptyCourse = await db.course.create({ data: { tenantId: actor.tenantId, title: 'Empty' } });
-  foreign = await db.course.create({ data: { tenantId: other.tenantId, title: 'Foreign' } });
+  foreign = await db.course.create({ data: { id: demoId('west:Safety'), tenantId: other.tenantId, title: 'Foreign' } });
   async function enroll(name, status = 'COMPLETED') {
     const learner = await db.learner.create({ data: { tenantId: actor.tenantId, name, email: `${name}@test.example` } });
     return db.enrollment.create({ data: { tenantId: actor.tenantId, courseId: course.id, learnerId: learner.id, status, completedAt: status === 'COMPLETED' ? new Date() : null } });
@@ -63,14 +64,14 @@ test('course options and issuance enforce authentication, tenant boundaries and 
     assert.equal((await request('courses', undefined, credential)).status, 401);
     assert.equal((await request('bulk-issuance', { courseId: course.id }, credential)).status, 401);
   }
-  for (const body of [{}, { courseId: 'bad' }, { courseId: [course.id] }, { courseId: course.id, tenantId: other.tenantId }, { courseId: course.id, learnerIds: [] }]) {
+  for (const body of [{}, { courseId: 'bad' }, { courseId: null }, { courseId: 123 }, { courseId: course.id + '\n' }, { courseId: course.id.replaceAll('-', '') }, { courseId: course.id.replace('d', 'g') }, { courseId: [course.id] }, { courseId: course.id, tenantId: other.tenantId }, { courseId: course.id, learnerIds: [] }]) {
     assert.equal((await request('bulk-issuance', body)).status, 400);
   }
   for (const id of [foreign.id, randomUUID()]) assert.equal((await request('bulk-issuance', { courseId: id })).status, 404);
   const response = await request('courses'); assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), { items: [{ id: emptyCourse.id, title: 'Empty' }, { id: course.id, title: 'Safety' }] });
 });
-test('mixed outcomes continue after a learner failure and preserve audit atomicity', async () => {
+test('seeded course IDs support mixed outcomes and preserve audit atomicity after a learner failure', async () => {
   const result = await bulk(); assert.equal(isBulkIssuanceResponse(result), true);
   assert.deepEqual([result.total, result.issued, result.skipped, result.failed], [5, 1, 3, 1]);
   const outcome = id => result.outcomes.find(row => row.enrollmentId === id);
@@ -98,4 +99,31 @@ test('concurrent retries issue the previously failed learner exactly once and ot
 });
 test('empty courses produce a successful empty result', async () => {
   assert.deepEqual(await bulk(emptyCourse.id), { courseId: emptyCourse.id, total: 0, issued: 0, skipped: 0, failed: 0, outcomes: [] });
+});
+test('uppercase seeded UUIDs are accepted and retries remain idempotent', async () => {
+  const result = await bulk(course.id.toUpperCase());
+  assert.deepEqual([result.total, result.issued, result.skipped, result.failed], [5, 0, 5, 0]);
+});
+test('large courses return every outcome without exceeding query parameter limits', async () => {
+  const large = await db.course.create({ data: { tenantId: other.tenantId, title: 'Large course' } });
+  await db.$executeRaw`INSERT INTO "Learner" (id, "tenantId", name, email)
+    SELECT gen_random_uuid(), ${other.tenantId}::uuid, 'Volume learner ' || n, 'volume-' || n || '@bulk.test'
+    FROM generate_series(1, 100001) n`;
+  await db.$executeRaw`INSERT INTO "Enrollment" (id, "tenantId", "courseId", "learnerId", status, "completedAt")
+    SELECT id, "tenantId", ${large.id}::uuid, id, 'COMPLETED'::"CompletionStatus", now()
+    FROM "Learner" WHERE "tenantId" = ${other.tenantId}::uuid`;
+  await db.$executeRaw`INSERT INTO "Certificate" (id, "tenantId", "enrollmentId", "issuedById", "issueDate", "issueTimeZone")
+    SELECT gen_random_uuid(), "tenantId", id, ${other.id}::uuid, (now() AT TIME ZONE 'Asia/Shanghai')::date, 'Asia/Shanghai'
+    FROM "Enrollment" WHERE "tenantId" = ${other.tenantId}::uuid AND "courseId" = ${large.id}::uuid
+    ORDER BY id LIMIT 100000`;
+  const otherToken = randomBytes(32).toString('base64url');
+  await db.admin.update({ where: { id: other.id }, data: { tokenHash: hashToken(otherToken) } });
+  const response = await request('bulk-issuance', { courseId: large.id }, otherToken);
+  assert.equal(response.status, 201);
+  const result = await response.json();
+  assert.equal(isBulkIssuanceResponse(result), true);
+  assert.deepEqual([result.total, result.issued, result.skipped, result.failed], [100001, 1, 100000, 0]);
+  assert.equal(new Set(result.outcomes.map(row => row.enrollmentId)).size, 100001);
+  assert.equal(await db.certificate.count({ where: { tenantId: other.tenantId } }), 100001);
+  assert.equal(await db.auditEvent.count({ where: { tenantId: other.tenantId, action: 'ISSUED' } }), 100001);
 });
