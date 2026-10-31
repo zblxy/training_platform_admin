@@ -1,8 +1,8 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { isCertificateListResponse, type CertificateListResponse, type CertificateSortField } from '@training/shared';
 
-export function CertificateList() {
-  const [token, setToken] = useState('');
+interface CertificateListProps { token: string; onTokenChange: (token: string) => void; refreshKey: number }
+export function CertificateList({ token, onTokenChange: setToken, refreshKey }: CertificateListProps) {
   const [credential, setCredential] = useState('');
   const [draft, setDraft] = useState('');
   const [search, setSearch] = useState('');
@@ -30,7 +30,7 @@ export function CertificateList() {
         if (active) { setResult(data); setState('ready'); }
       }).catch(() => { if (active) setState('error'); }).finally(() => clearTimeout(timeout));
     return () => { active = false; controller.abort(); clearTimeout(timeout); };
-  }, [token, search, page, pageSize, sortBy, sortDirection, attempt]);
+  }, [token, search, page, pageSize, sortBy, sortDirection, attempt, refreshKey]);
   function applyToken(event: FormEvent) {
     event.preventDefault(); setResult(null); setToken(credential.trim()); setCredential(''); setPage(1); setAttempt(value => value + 1);
   }
