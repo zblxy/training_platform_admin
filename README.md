@@ -2,6 +2,25 @@
 
 Training admin demo with tenant-scoped data models, transactional certificate issuance/revocation services, generated bearer-token actor identification, and a repeatable demo seed. The frontend includes a certificate list with learner-name/serial search, sorting and pagination, plus course-based bulk issuance with per-learner outcomes. `GET /api/health` reports process availability, not database connectivity. See [data model and invariants](docs/data-model.md).
 
+## One command setup & verification check
+setup:
+```
+export PATH=/home/zblxy/.nvm/versions/node/v24.22.1/bin:$PATH &&
+API_PORT=3001 WEB_PORT=5174 docker compose -p training-platform-dev up --build -d --wait &&
+npm run db:migrate:deploy --workspace @training/api &&
+npm run db:seed:large
+```
+
+check:
+```
+export PATH=/home/zblxy/.nvm/versions/node/v24.22.1/bin:$PATH &&
+POSTGRES_USER=acceptance POSTGRES_PASSWORD=acceptance_local_only POSTGRES_DB=acceptance DB_PORT=55440 \
+  docker compose -p training-platform-acceptance up -d --wait db &&
+TEST_DATABASE_URL='postgresql://acceptance:acceptance_local_only@127.0.0.1:55440/acceptance' \
+PLAYWRIGHT_EXECUTABLE_PATH='/home/zblxy/.cache/ms-playwright/chromium-1169/chrome-linux/chrome' \
+  npm run test:acceptance
+```
+
 ## Runtime and setup
 
 Use Node **24.22.1**, npm **11.19.1** (also pinned in containers). With nvm, run `nvm install && nvm use`; in this managed worktree:
