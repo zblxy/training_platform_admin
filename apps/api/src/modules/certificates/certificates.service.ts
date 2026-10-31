@@ -1,6 +1,6 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { DatabaseService } from '../../common/database/database.service.js';
-import type { BulkIssuanceOutcome, BulkIssuanceResponse, CertificateListResponse, CourseListResponse } from '@training/shared';
+import type { BulkIssuanceOutcome, BulkIssuanceResponse, CertificateDetail, CertificateListResponse, CourseListResponse } from '@training/shared';
 import type { Prisma } from '../../generated/prisma/client.js';
 import type { ListCertificatesDto } from './list-certificates.dto.js';
 import type { Actor } from '../auth/auth.module.js';
@@ -45,6 +45,28 @@ export class CertificatesService {
       courseTitle: row.enrollment.course.title, issuedAt: row.issuedAt.toISOString(),
       issueDate: row.issueDate.toISOString().slice(0, 10), status: row.revokedAt ? 'revoked' : 'active',
     })) };
+  }
+  async detail(actor: Actor, certificateId: string): Promise<CertificateDetail> {
+    // Read certificate and audit history in one consistent snapshot.
+    return this.db.$transaction(async tx => {
+      const row = await tx.certificate.findFirst({
+        where: { id: certificateId, tenantId: actor.tenantId },
+        select: { id: true, serialNumber: true, issuedAt: true, issueDate: true, issueTimeZone: true,
+          revokedAt: true, revocationReason: true,
+          enrollment: { select: { learner: { select: { name: true } }, course: { select: { title: true } } } },
+          auditEvents: { where: { tenantId: actor.tenantId }, orderBy: [{ occurredAt: 'asc' }, { action: 'asc' }],
+            select: { action: true, occurredAt: true, actor: { select: { name: true } } } },
+        },
+      });
+      if (!row) throw new NotFoundException('Certificate not found');
+      return { id: row.id, serialNumber: row.serialNumber, learnerName: row.enrollment.learner.name,
+        courseTitle: row.enrollment.course.title, issuedAt: row.issuedAt.toISOString(),
+        issueDate: row.issueDate.toISOString().slice(0, 10), issueTimeZone: row.issueTimeZone,
+        status: row.revokedAt ? 'revoked' : 'active', revokedAt: row.revokedAt?.toISOString() ?? null,
+        revocationReason: row.revocationReason,
+        auditEvents: row.auditEvents.map(event => ({ action: event.action, actorName: event.actor.name, occurredAt: event.occurredAt.toISOString() })),
+      };
+    }, { isolationLevel: 'RepeatableRead' });
   }
   async courses(actor: Actor): Promise<CourseListResponse> {
     return { items: await this.db.course.findMany({ where: { tenantId: actor.tenantId },

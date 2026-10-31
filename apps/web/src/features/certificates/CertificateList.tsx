@@ -1,8 +1,14 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { isCertificateListResponse, type CertificateListResponse, type CertificateSortField } from '@training/shared';
+
+import { CertificateDetail } from './CertificateDetail';
 
 interface CertificateListProps { token: string; onTokenChange: (token: string) => void; refreshKey: number }
 export function CertificateList({ token, onTokenChange: setToken, refreshKey }: CertificateListProps) {
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const listHeading = useRef<HTMLHeadingElement>(null);
+  const selectedTrigger = useRef<HTMLButtonElement | null>(null);
+  const [revocationKey, setRevocationKey] = useState(0);
   const [credential, setCredential] = useState('');
   const [draft, setDraft] = useState('');
   const [search, setSearch] = useState('');
@@ -30,20 +36,20 @@ export function CertificateList({ token, onTokenChange: setToken, refreshKey }: 
         if (active) { setResult(data); setState('ready'); }
       }).catch(() => { if (active) setState('error'); }).finally(() => clearTimeout(timeout));
     return () => { active = false; controller.abort(); clearTimeout(timeout); };
-  }, [token, search, page, pageSize, sortBy, sortDirection, attempt, refreshKey]);
+  }, [token, search, page, pageSize, sortBy, sortDirection, attempt, refreshKey, revocationKey]);
   function applyToken(event: FormEvent) {
-    event.preventDefault(); setResult(null); setToken(credential.trim()); setCredential(''); setPage(1); setAttempt(value => value + 1);
+    event.preventDefault(); setSelectedId(null); setResult(null); setToken(credential.trim()); setCredential(''); setPage(1); setAttempt(value => value + 1);
   }
   function submitSearch(event: FormEvent) { event.preventDefault(); setSearch(draft.trim()); setPage(1); }
   const pages = result ? Math.max(1, Math.ceil(result.total / pageSize)) : 1;
   return <section aria-labelledby="certificates-heading">
-    <h2 id="certificates-heading">Certificates</h2>
+    <h2 id="certificates-heading" ref={listHeading} tabIndex={-1}>Certificates</h2>
     <p>Search issued certificates by learner name or full serial number. Revoked certificates remain in the list.</p>
     <details open={!token}><summary>API token</summary>
       <form onSubmit={applyToken} className="controls">
         <label>Generated admin token<input type="password" value={credential} onChange={event => setCredential(event.target.value)} autoComplete="off" required minLength={43} maxLength={43} /></label>
         <button type="submit">Use token</button>
-        {token && <button type="button" onClick={() => { setToken(''); setResult(null); }}>Clear token</button>}
+        {token && <button type="button" onClick={() => { setSelectedId(null); setToken(''); setResult(null); }}>Clear token</button>}
       </form>
       <p>Use your tenant admin token from the demo seed. The token stays in memory and is cleared on reload.</p>
     </details>
@@ -66,7 +72,7 @@ export function CertificateList({ token, onTokenChange: setToken, refreshKey }: 
       {result.items.length === 0 ? <p>{result.total === 0 ? 'No certificates match your search.' : 'No certificates on this page. Return to an earlier page.'}</p> : <div className="table-scroll"><table>
         <caption>Issued certificates</caption>
         <thead><tr><th scope="col">Serial number</th><th scope="col">Learner</th><th scope="col">Course</th><th scope="col">Issue date</th><th scope="col">Status</th></tr></thead>
-        <tbody>{result.items.map(item => <tr key={item.id}><td className="serial">{item.serialNumber}</td><td>{item.learnerName}</td><td>{item.courseTitle}</td><td>{item.issueDate}</td><td>{item.status === 'active' ? 'Active' : 'Revoked'}</td></tr>)}</tbody>
+        <tbody>{result.items.map(item => <tr key={item.id}><td className="serial"><button onClick={event => { selectedTrigger.current = event.currentTarget; setSelectedId(item.id); }}>{item.serialNumber}</button></td><td>{item.learnerName}</td><td>{item.courseTitle}</td><td>{item.issueDate}</td><td>{item.status === 'active' ? 'Active' : 'Revoked'}</td></tr>)}</tbody>
       </table></div>}
       <nav aria-label="Certificate pagination" className="controls">
         <button disabled={page <= 1} onClick={() => setPage(value => value - 1)}>Previous page</button>
@@ -75,5 +81,8 @@ export function CertificateList({ token, onTokenChange: setToken, refreshKey }: 
         {page > pages && <button onClick={() => setPage(1)}>First page</button>}
       </nav>
     </>}
+    {token && selectedId && <CertificateDetail key={`${token}:${selectedId}`} id={selectedId} token={token}
+      onClose={() => { setSelectedId(null); (selectedTrigger.current?.isConnected ? selectedTrigger.current : listHeading.current)?.focus(); }}
+      onRevoked={() => setRevocationKey(value => value + 1)} />}
   </section>;
 }

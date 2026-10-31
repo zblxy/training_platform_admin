@@ -138,7 +138,7 @@ Reruns resume committed work, preserve tokens and existing certificates, and add
 
 Generated 256-bit bearer tokens are stored only in the ignored root `.demo-tokens.json` with mode `0600`, excluded from Docker build context, and never printed. Database admins store only SHA-256 hashes. Keep this file private. Repeated seeds reuse its tokens; losing it and reseeding rotates the two demo admins' tokens. `DEMO_TOKEN_FILE` can select a separate token file. A partially failed seed can be rerun; it does not reset data. Use demo databases only.
 
-`GET /api/actor` requires `Authorization: Bearer <token>` and returns only admin ID, tenant ID and name. There is no login UI. Open the certificate list and supply a generated admin token using the inline API token control. Tokens stay in memory and are cleared on reload; they are never stored in browser storage or URLs. Bulk issuance is available through the course selector and an authenticated HTTP route; revocation remains a backend service without an HTTP route. Future protected routes must use `ActorGuard` and pass its actor to the services. Tokens have no expiry in this demo; replace an admin's token hash to rotate/revoke access. Never embed tokens in frontend source or URLs.
+`GET /api/actor` requires `Authorization: Bearer <token>` and returns only admin ID, tenant ID and name. There is no login UI. Open the certificate list and supply a generated admin token using the inline API token control. Tokens stay in memory and are cleared on reload; they are never stored in browser storage or URLs. Bulk issuance is available through the course selector and an authenticated HTTP route; certificate detail and confirmed revocation are available through authenticated HTTP routes and the detail panel. Future protected routes must use `ActorGuard` and pass its actor to the services. Tokens have no expiry in this demo; replace an admin's token hash to rotate/revoke access. Never embed tokens in frontend source or URLs.
 
 Run database integration checks only against an isolated test database:
 
@@ -172,7 +172,7 @@ Apply migrations explicitly and run the demo seed against a development database
 | `sortBy` | `issuedAt` (default), `learnerName`, `serialNumber`, or `courseTitle`. |
 | `sortDirection` | `asc` or `desc` (default). Certificate ID ascending breaks ties. |
 
-The response contains `items`, `total`, `page`, and `pageSize`. Each item includes ID, serial number, learner name, course title, UTC issuance timestamp, historical tenant-local issue date (`YYYY-MM-DD`), and active/revoked status. Both statuses appear; the list has no revocation, export, or status filter. Course-based issuance is available in the bulk issuance section. Unknown parameters and invalid values return 400; missing/invalid credentials return 401. Count and rows share a repeatable-read snapshot. Offset pages can shift between requests if certificates are added or related names change.
+The response contains `items`, `total`, `page`, and `pageSize`. Each item includes ID, serial number, learner name, course title, UTC issuance timestamp, historical tenant-local issue date (`YYYY-MM-DD`), and active/revoked status. Both statuses appear; select a serial number to view details and revoke an active certificate. The list has no export or status filter. Course-based issuance is available in the bulk issuance section. Unknown parameters and invalid values return 400; missing/invalid credentials return 401. Count and rows share a repeatable-read snapshot. Offset pages can shift between requests if certificates are added or related names change.
 
 Database verification: `TEST_DATABASE_URL=<isolated PostgreSQL URL> npm run test:db` creates temporary schemas and applies real migration files, including an upgrade containing active and revoked certificates. Browser verification: `npm run test:e2e` builds first and starts API/Vite using isolated ports; certificate and bulk issuance UI tests intercept API responses, while database tests exercise real HTTP authorization, issuance, concurrency, partial failures, and data access. Set `PLAYWRIGHT_EXECUTABLE_PATH` if the managed environment supplies Chromium separately.
 
@@ -193,3 +193,25 @@ The request reads enrollment membership, learner names, and existing certificate
 This implementation processes learners sequentially in one HTTP request. There is no background worker, durable batch record, progress polling, or recovery of previous per-request outcomes after reload. Keep the page open for results. A lost response or navigation can leave the result unknown while server processing continues; retrying is safe because certificate issuance is idempotent. Large courses may outlast infrastructure request timeouts. Results are held in browser memory and cleared when changing the course or token. No schema migration or business-data cache is needed.
 
 Verification uses the existing commands: `npm test`, `TEST_DATABASE_URL=<isolated PostgreSQL URL> npm run test:db`, and `npm run test:e2e`. Database tests create temporary schemas on the explicitly selected isolated database; browser tests start local API/Vite processes and use intercepted feature responses. Do not point the database suite at shared or production data.
+
+### Certificate detail and revocation
+
+Select a certificate serial number to open its detail panel. It shows the serial,
+course, learner, historical tenant-local issue date and time zone, status, and
+issuance/revocation audit history (timestamps shown in UTC). Active certificates
+can be revoked with a required reason and an explicit confirmation. Revocation is
+permanent; repeated requests preserve the first reason, actor, timestamp and audit
+event. Successful revocation refreshes both detail and list status.
+
+Bearer-authenticated endpoints: `GET /api/certificates/:id` and
+`POST /api/certificates/:id/revoke` with JSON `{ "reason": "Correction" }`.
+Both use the authenticated actor's tenant; missing and foreign certificates return
+404. Invalid UUIDs and blank/overlong reasons return 400. The revocation endpoint
+returns the updated detail with 200. No schema migration is needed; existing
+database triggers create issuance and revocation audit events atomically.
+
+`npm run test:db` includes detail/revocation integration checks and requires an
+explicit `TEST_DATABASE_URL` pointing to an isolated PostgreSQL database; tests
+create and remove temporary schemas. `npm run test:e2e` builds applications and
+starts local API/Vite servers; feature browser tests mock certificate responses,
+while database tests verify real authorization, transactions and audit behavior.

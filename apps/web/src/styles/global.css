@@ -18,3 +18,9 @@ th, td { padding: .8rem; border-bottom: 1px solid #d6dde8; }
 th { background: #eef2f7; }
 .serial { font-family: monospace; overflow-wrap: anywhere; }
 [role="alert"] { color: #9c2424; }
+
+textarea { font: inherit; padding: .6rem; min-height: 6rem; width: 28rem; max-width: 100%; box-sizing: border-box; }
+dialog { max-width: min(36rem, 85vw); border: 1px solid #d6dde8; border-radius: .5rem; padding: 1.5rem; }
+dialog::backdrop { background: rgb(0 0 0 / 45%); }
+dt { font-weight: 600; margin-top: .8rem; }
+dd { margin: .3rem 0; overflow-wrap: anywhere; white-space: pre-wrap; }

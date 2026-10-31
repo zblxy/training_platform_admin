@@ -30,3 +30,29 @@ export function isCertificateListResponse(value: unknown): value is CertificateL
         (entry.status === 'active' || entry.status === 'revoked');
     });
 }
+
+export interface CertificateAuditEntry {
+  action: 'ISSUED' | 'REVOKED';
+  actorName: string;
+  occurredAt: string;
+}
+export interface CertificateDetail extends CertificateListItem {
+  issueTimeZone: string;
+  revokedAt: string | null;
+  revocationReason: string | null;
+  auditEvents: CertificateAuditEntry[];
+}
+export function isCertificateDetail(value: unknown): value is CertificateDetail {
+  if (!isCertificateListResponse({ items: [value], total: 1, page: 1, pageSize: 1 })) return false;
+  const row = value as Record<string, unknown>;
+  return typeof row.issueTimeZone === 'string' &&
+    (row.revokedAt === null || typeof row.revokedAt === 'string') &&
+    (row.revocationReason === null || typeof row.revocationReason === 'string') &&
+    Array.isArray(row.auditEvents) && row.auditEvents.length >= 1 && row.auditEvents.length <= 2 &&
+    row.auditEvents.every((event: unknown) => {
+      if (typeof event !== 'object' || event === null) return false;
+      const entry = event as Record<string, unknown>;
+      return (entry.action === 'ISSUED' || entry.action === 'REVOKED') &&
+        typeof entry.actorName === 'string' && typeof entry.occurredAt === 'string';
+    });
+}
