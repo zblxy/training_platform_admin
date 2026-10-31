@@ -34,6 +34,7 @@ model Admin {
   issued Certificate[] @relation("Issuer")
   revoked Certificate[] @relation("Revoker")
   auditEvents AuditEvent[]
+  exports CertificateExport[]
   @@unique([tenantId, id])
 }
 model Course {
@@ -102,4 +103,34 @@ model AuditEvent {
   actor Admin @relation(fields: [tenantId, actorId], references: [tenantId, id], onDelete: Restrict)
   @@unique([certificateId, action])
   @@index([tenantId, occurredAt])
+}
+
+model CertificateExport {
+  id String @id @default(uuid()) @db.Uuid
+  tenantId String @db.Uuid
+  requestedById String @db.Uuid
+  requester Admin @relation(fields: [tenantId, requestedById], references: [tenantId, id], onDelete: Restrict)
+  search String
+  sortBy String
+  sortDirection String
+  status String @default("queued")
+  processed Int @default(0)
+  total Int @default(0)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  expiresAt DateTime @db.Timestamptz(3)
+  completedAt DateTime? @db.Timestamptz(3)
+  leaseId String? @db.Uuid
+  leaseUntil DateTime? @db.Timestamptz(3)
+  attempts Int @default(0)
+  error String?
+  chunks CertificateExportChunk[]
+  @@index([status, createdAt])
+  @@index([expiresAt])
+}
+model CertificateExportChunk {
+  exportId String @db.Uuid
+  sequence Int
+  content Bytes
+  job CertificateExport @relation(fields: [exportId], references: [id], onDelete: Cascade)
+  @@id([exportId, sequence])
 }
