@@ -113,6 +113,7 @@ The scaffold implements the commands below except entries explicitly marked defe
 | Create and apply a development migration (after models exist) | `npm run db:migrate:dev --workspace @training/api -- --name <name>` |
 | Apply committed migrations | `npm run db:migrate:deploy --workspace @training/api` |
 | Seed demo data explicitly (never production) | `npm run db:seed` |
+| Prepare demo fixtures and bring East to 100,000 certificates | `npm run db:seed:large` |
 | Validate local Compose configuration | `docker compose -p training-platform-dev config --quiet` |
 | Build and start local containers | `docker compose -p training-platform-dev up --build -d --wait` |
 | Inspect container status | `docker compose -p training-platform-dev ps` |

@@ -124,7 +124,17 @@ npm run db:migrate:deploy -w @training/api
 npm run db:seed
 ```
 
-The seed creates two tenants (`Asia/Shanghai` and `America/New_York`), one admin per tenant, two courses per tenant, and four learners enrolled in both courses. It includes incomplete, completed, certified, and revoked examples. Rerunning preserves existing records and certificate/audit history. The seed is disabled when `NODE_ENV=production`.
+The seed creates **East** (`Australia/Sydney`, admin `alice@east.test`) and **West** (`Australia/Perth`, admin `bob@west.test`). Admin email identifiers use the existing Admin.name field; no email schema field is added. Each admin belongs only to their own tenant. Both tenants have **Safety 101**, **Leadership**, and four learners enrolled in both courses: Jordan Smith (incomplete), Sam Taylor (completed without a certificate), Alex Lee (already certified), and Morgan Chen (revoked certificate). Existing enrollment states and certificate/audit history are preserved on reruns; fixture tenant names/time zones, admin names, course titles, and learner names are updated. Historical certificate date/zone snapshots remain unchanged. The seed is disabled when `NODE_ENV=production`.
+
+To prepare the volume demo, run:
+
+```sh
+npm run db:seed:large
+```
+
+This first prepares the small fixtures, then brings **East to exactly 100,000 total certificate rows**, including existing and revoked certificates. West keeps its small dataset (four certificates on a fresh database). New volume learners are enrolled in East's Safety 101, are completed, and receive one certificate and one trigger-generated issuance audit each. Certificates use database-generated unique serials and the current tenant-local issue date. Rows are generated in atomic batches of up to 1,000, with progress output and bounded batch waits. No triggers are disabled.
+
+Reruns resume committed work, preserve tokens and existing certificates, and add nothing once East has 100,000 rows. Concurrent volume generators serialize on the East tenant row. If East already exceeds the target, the script reports an error rather than deleting history. Run generation while the demo is idle so unrelated certificate writers do not change the final count. Both commands require the migrated local demo DATABASE_URL; neither runs migrations or resets the database. Token-file handling is shared between the commands.
 
 Generated 256-bit bearer tokens are stored only in the ignored root `.demo-tokens.json` with mode `0600`, excluded from Docker build context, and never printed. Database admins store only SHA-256 hashes. Keep this file private. Repeated seeds reuse its tokens; losing it and reseeding rotates the two demo admins' tokens. `DEMO_TOKEN_FILE` can select a separate token file. A partially failed seed can be rerun; it does not reset data. Use demo databases only.
 

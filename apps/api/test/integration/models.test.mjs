@@ -9,6 +9,7 @@ import { DatabaseService } from '../../dist/common/database/database.service.js'
 import { CertificatesService, localIssueDate } from '../../dist/modules/certificates/certificates.service.js';
 import { hashToken } from '../../dist/modules/auth/auth.module.js';
 import { createApp } from '../../dist/app.js';
+import { demoId, demoTenants, generateEastCertificates } from '../../prisma/demo-data.mjs';
 
 if (!process.env.TEST_DATABASE_URL) throw new Error('TEST_DATABASE_URL must point to an isolated test database');
 const url = new URL(process.env.TEST_DATABASE_URL);
@@ -111,6 +112,49 @@ test('demo seed is repeatable and keeps token credentials and certificate counts
   result = run(); assert.equal(result.status, 0, result.stderr);
   assert.equal(await readFile(process.env.DEMO_TOKEN_FILE, 'utf8'), credentials);
   assert.deepEqual([await db.tenant.count(), await db.admin.count(), await db.certificate.count(), await db.auditEvent.count()], counts);
+});
+
+test('Australian demo fixtures have tenant-local admins, matching courses and enrollment states', async () => {
+  for (const fixture of demoTenants) {
+    const tenantId = demoId(fixture.key);
+    const tenant = await db.tenant.findUniqueOrThrow({ where: { id: tenantId }, include: { admins: true } });
+    assert.equal(tenant.name, fixture.name);
+    assert.equal(tenant.timeZone, fixture.timeZone);
+    assert.equal(tenant.admins.length, 1);
+    assert.equal(tenant.admins[0].name, fixture.admin);
+    const course = await db.course.findUniqueOrThrow({ where: { id: demoId(`${fixture.key}:Safety`) }, include: { enrollments: { include: { learner: true, certificate: true } } } });
+    assert.equal(course.title, 'Safety 101');
+    assert.equal(course.tenantId, tenantId);
+    assert.ok(course.enrollments.some(e => e.status === 'INCOMPLETE' && !e.certificate));
+    assert.ok(course.enrollments.some(e => e.status === 'COMPLETED' && !e.certificate));
+    assert.ok(course.enrollments.some(e => e.learner.name === 'Alex Lee' && e.certificate && !e.certificate.revokedAt));
+  }
+});
+
+test('volume generation resumes after interruption, serializes concurrent runs, and preserves West', async () => {
+  const tenantId = demoId('east');
+  const westCount = await db.certificate.count({ where: { tenantId: demoId('west') } });
+  const westAudits = await db.auditEvent.count({ where: { tenantId: demoId('west') } });
+  const historical = await db.certificate.findMany({ where: { tenantId }, orderBy: { id: 'asc' } });
+  await assert.rejects(generateEastCertificates(db, { target: 31, batchSize: 7, onProgress: () => { throw new Error('Interrupted after committed batch'); } }), /Interrupted/);
+  assert.equal(await db.certificate.count({ where: { tenantId } }), historical.length + 7);
+  assert.equal(await generateEastCertificates(db, { target: 31, batchSize: 7 }), 31);
+  await Promise.all([generateEastCertificates(db, { target: 51, batchSize: 7 }), generateEastCertificates(db, { target: 51, batchSize: 5 })]);
+  assert.equal(await generateEastCertificates(db, { target: 51 }), 51);
+  assert.equal(await db.certificate.count({ where: { tenantId } }), 51);
+  assert.equal(await db.auditEvent.count({ where: { tenantId, action: 'ISSUED' } }), 51);
+  assert.equal(await db.certificate.count({ where: { tenantId: demoId('west') } }), westCount);
+  assert.equal(await db.auditEvent.count({ where: { tenantId: demoId('west') } }), westAudits);
+  assert.deepEqual(await db.certificate.findMany({ where: { id: { in: historical.map(c => c.id) } }, orderBy: { id: 'asc' } }), historical);
+  const rows = await db.$queryRaw`SELECT count(*)::int AS invalid FROM "Certificate" WHERE "tenantId" = ${tenantId}::uuid AND "issueDate" <> ("issuedAt" AT TIME ZONE "issueTimeZone")::date`;
+  assert.equal(rows[0].invalid, 0);
+  await assert.rejects(generateEastCertificates(db, { target: 50 }), /exceeding target/);
+  assert.equal(await db.certificate.count({ where: { tenantId } }), 51);
+  for (const script of ['prisma/seed.mjs', 'prisma/seed-large.mjs']) {
+    const result = spawnSync(process.execPath, [script], { env: { ...process.env, NODE_ENV: 'production' }, encoding: 'utf8' });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /disabled in production/);
+  }
 });
 
 test('two concurrent admin removals preserve at least one admin', async () => {
