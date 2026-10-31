@@ -1,5 +1,8 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { DatabaseService } from '../../common/database/database.service.js';
+import type { CertificateListResponse } from '@training/shared';
+import type { Prisma } from '../../generated/prisma/client.js';
+import type { ListCertificatesDto } from './list-certificates.dto.js';
 import type { Actor } from '../auth/auth.module.js';
 
 export function localIssueDate(instant: Date, timeZone: string): Date {
@@ -14,6 +17,35 @@ export function enrollmentDisplayStatus(status: 'INCOMPLETE' | 'COMPLETED', cert
 @Injectable()
 export class CertificatesService {
   constructor(private readonly db: DatabaseService) {}
+  async list(actor: Actor, query: ListCertificatesDto): Promise<CertificateListResponse> {
+    const { search, page, pageSize, sortBy, sortDirection } = query;
+    const where: Prisma.CertificateWhereInput = {
+      tenantId: actor.tenantId,
+      ...(search ? { OR: [
+        { serialNumber: { equals: search.toUpperCase() } },
+        // Escape LIKE metacharacters: the user is searching for literal text.
+        { enrollment: { learner: { name: { contains: search.replace(/[\\%_]/g, '\\$&'), mode: 'insensitive' } } } },
+      ] } : {}),
+    };
+    const primary: Prisma.CertificateOrderByWithRelationInput = sortBy === 'learnerName'
+      ? { enrollment: { learner: { name: sortDirection } } }
+      : sortBy === 'courseTitle' ? { enrollment: { course: { title: sortDirection } } }
+      : { [sortBy]: sortDirection };
+    // Count and rows share a consistent database snapshot, including during issuance.
+    const [total, rows] = await this.db.$transaction([
+      this.db.certificate.count({ where }),
+      this.db.certificate.findMany({
+        where, orderBy: [primary, { id: 'asc' }], skip: (page - 1) * pageSize, take: pageSize,
+        select: { id: true, serialNumber: true, issuedAt: true, issueDate: true, revokedAt: true,
+          enrollment: { select: { learner: { select: { name: true } }, course: { select: { title: true } } } } },
+      }),
+    ], { isolationLevel: 'RepeatableRead' });
+    return { total, page, pageSize, items: rows.map(row => ({
+      id: row.id, serialNumber: row.serialNumber, learnerName: row.enrollment.learner.name,
+      courseTitle: row.enrollment.course.title, issuedAt: row.issuedAt.toISOString(),
+      issueDate: row.issueDate.toISOString().slice(0, 10), status: row.revokedAt ? 'revoked' : 'active',
+    })) };
+  }
   async issue(actor: Actor, enrollmentId: string) {
     return this.db.$transaction(async tx => {
       // One lock per enrollment serializes concurrent issuance without retrying side effects.

@@ -1,6 +1,6 @@
 # Training platform admin
 
-Training admin demo with tenant-scoped data models, transactional certificate issuance/revocation services, generated bearer-token actor identification, and a repeatable demo seed. The frontend remains a placeholder. `GET /api/health` reports process availability, not database connectivity. See [data model and invariants](docs/data-model.md).
+Training admin demo with tenant-scoped data models, transactional certificate issuance/revocation services, generated bearer-token actor identification, and a repeatable demo seed. The frontend includes a read-only certificate list with learner-name/serial search, sorting and pagination. `GET /api/health` reports process availability, not database connectivity. See [data model and invariants](docs/data-model.md).
 
 ## Runtime and setup
 
@@ -128,7 +128,7 @@ The seed creates two tenants (`Asia/Shanghai` and `America/New_York`), one admin
 
 Generated 256-bit bearer tokens are stored only in the ignored root `.demo-tokens.json` with mode `0600`, excluded from Docker build context, and never printed. Database admins store only SHA-256 hashes. Keep this file private. Repeated seeds reuse its tokens; losing it and reseeding rotates the two demo admins' tokens. `DEMO_TOKEN_FILE` can select a separate token file. A partially failed seed can be rerun; it does not reset data. Use demo databases only.
 
-`GET /api/actor` requires `Authorization: Bearer <token>` and returns only admin ID, tenant ID and name. There is no login UI. Certificate operations are backend services in this phase, with no issuance/revocation HTTP routes or feature UI. Future protected routes must use `ActorGuard` and pass its actor to the services. Tokens have no expiry in this demo; replace an admin's token hash to rotate/revoke access. Never embed tokens in frontend source or URLs.
+`GET /api/actor` requires `Authorization: Bearer <token>` and returns only admin ID, tenant ID and name. There is no login UI. Open the certificate list and supply a generated admin token using the inline API token control. Tokens stay in memory and are cleared on reload; they are never stored in browser storage or URLs. Issuance/revocation remain backend services without HTTP routes. Future protected routes must use `ActorGuard` and pass its actor to the services. Tokens have no expiry in this demo; replace an admin's token hash to rotate/revoke access. Never embed tokens in frontend source or URLs.
 
 Run database integration checks only against an isolated test database:
 
@@ -147,3 +147,23 @@ docker compose -f compose.yaml -f compose.production.yaml run --rm api npm run d
 ```
 
 Before shipping schema changes, take and verify a database backup, review locking/data conversion risks, and prepare a forward repair or tested restore procedure. On failure, stop rollout, inspect migration state and repair deliberately; do not automatically retry destructive SQL or assume application rollback reverses database changes. Initial migration behavior is covered by isolated database tests; backup restoration and remote deployment are separate operational checks.
+
+## Certificate list
+
+Apply migrations explicitly and run the demo seed against a development database before browsing certificates. The seed already creates one admin per tenant; generated tokens are in the ignored root `.demo-tokens.json`. Never put tokens in frontend environment variables, bundles, or URLs.
+
+`GET /api/certificates` requires `Authorization: Bearer <token>`. Results and totals belong only to the authenticated admin's tenant. Query parameters:
+
+| Parameter | Behavior |
+| --- | --- |
+| `search` | Up to 200 characters; trimmed; case-insensitive partial learner name OR full serial match (serial input is normalized to uppercase). SQL wildcard characters are literal. |
+| `page` | Positive integer, default 1, maximum 1,000,000. |
+| `pageSize` | Positive integer, default 20, maximum 100. |
+| `sortBy` | `issuedAt` (default), `learnerName`, `serialNumber`, or `courseTitle`. |
+| `sortDirection` | `asc` or `desc` (default). Certificate ID ascending breaks ties. |
+
+The response contains `items`, `total`, `page`, and `pageSize`. Each item includes ID, serial number, learner name, course title, UTC issuance timestamp, historical tenant-local issue date (`YYYY-MM-DD`), and active/revoked status. Both statuses appear; no issuance, revocation, export, or status filter is provided. Unknown parameters and invalid values return 400; missing/invalid credentials return 401. Count and rows share a repeatable-read snapshot. Offset pages can shift between requests if certificates are added or related names change.
+
+Database verification: `TEST_DATABASE_URL=<isolated PostgreSQL URL> npm run test:db` creates temporary schemas and applies real migration files, including an upgrade containing active and revoked certificates. Browser verification: `npm run test:e2e` builds first and starts API/Vite using isolated ports; certificate UI tests intercept list responses, while database tests exercise real HTTP authorization and data access. Set `PLAYWRIGHT_EXECUTABLE_PATH` if the managed environment supplies Chromium separately.
+
+The serial migration is additive and assigns `CERT-` plus 32 uppercase hexadecimal characters from random UUIDs, with a unique index, format check, and immutability trigger. It backfills active and revoked certificates without changing audit history. The table is locked while the new column/default and index are created; schedule migration appropriately for data size. Before production migration, take and verify a database backup. If the transaction fails, no partial schema change is retained: investigate and follow Prisma's failed-migration recovery procedure before retrying. For application rollback, retain the additive serial column/default and constraints so older application versions can still issue certificates; do not remove assigned serials or certificate/audit history.

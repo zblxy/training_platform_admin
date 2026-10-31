@@ -1,1 +1,20 @@
-:root { font-family: system-ui, sans-serif; color: #192538; background: #f5f7fa; } body { margin: 0; } main { max-width: 48rem; margin: 12vh auto; padding: 2rem; } h1 { font-size: 2rem; } p { line-height: 1.6; } button { font: inherit; padding: .6rem 1rem; cursor: pointer; } button:focus-visible { outline: 3px solid #1759b8; outline-offset: 3px; }
+:root { font-family: system-ui, sans-serif; color: #192538; background: #f5f7fa; }
+body { margin: 0; }
+main { max-width: 80rem; margin: 2rem auto; padding: 1.5rem; }
+h1 { font-size: 2rem; }
+p { line-height: 1.6; }
+section { background: white; padding: 1.5rem; border: 1px solid #d6dde8; border-radius: .5rem; margin-top: 2rem; }
+button, input, select { font: inherit; padding: .6rem; }
+button, summary { cursor: pointer; }
+button:disabled { cursor: default; opacity: .6; }
+:focus-visible { outline: 3px solid #1759b8; outline-offset: 3px; }
+.controls { display: flex; flex-wrap: wrap; align-items: end; gap: .8rem; margin: 1rem 0; }
+label { display: flex; flex-direction: column; gap: .4rem; max-width: 100%; }
+input { width: 24rem; max-width: 100%; box-sizing: border-box; }
+.table-scroll { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; text-align: left; }
+caption { text-align: left; font-weight: 600; margin: .8rem 0; }
+th, td { padding: .8rem; border-bottom: 1px solid #d6dde8; }
+th { background: #eef2f7; }
+.serial { font-family: monospace; overflow-wrap: anywhere; }
+[role="alert"] { color: #9c2424; }

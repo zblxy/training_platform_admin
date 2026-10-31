@@ -2,6 +2,7 @@ import { StrictMode, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { isHealthResponse } from '@training/shared';
 import './styles/global.css';
+import { CertificateList } from './features/certificates/CertificateList';
 function App() {
   const [state, setState] = useState<'loading' | 'ok' | 'error'>('loading');
   const [attempt, setAttempt] = useState(0);
@@ -16,9 +17,10 @@ function App() {
     }).catch(() => { if (active) setState('error'); }).finally(() => clearTimeout(timeout));
     return () => { active = false; controller.abort(); clearTimeout(timeout); };
   }, [attempt]);
-  return <main><h1>Training platform admin</h1><p>Project initialized. No application features are configured.</p>
-    <p role="status">{state === 'loading' ? 'Checking API connection…' : state === 'ok' ? 'API connection available.' : 'API connection unavailable.'}</p>
+  return <main><h1>Training platform admin</h1>
+    <p role="status" aria-label="API connection">{state === 'loading' ? 'Checking API connection…' : state === 'ok' ? 'API connection available.' : 'API connection unavailable.'}</p>
     {state === 'error' && <button onClick={() => setAttempt((value) => value + 1)}>Retry connection</button>}
+    <CertificateList />
   </main>;
 }
 createRoot(document.getElementById('root')!).render(<StrictMode><App /></StrictMode>);

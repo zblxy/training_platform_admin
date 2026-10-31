@@ -12,7 +12,7 @@ These instructions apply to the entire repository. This project is an internal a
 
 ## Repository status
 
-The repository implements a React/Vite placeholder, NestJS health and bearer-authenticated actor endpoints, tenant-scoped Prisma models, transactional certificate issuance/revocation services, database-generated audit events, a repeatable demo seed, Redis cache tooling, and container configurations. Certificate HTTP routes and business UI are deferred. See docs/data-model.md for approved model invariants.
+The repository implements a React/Vite certificate list, NestJS health and bearer-authenticated actor endpoints, tenant-scoped Prisma models, transactional certificate issuance/revocation services, database-generated audit events, a repeatable demo seed, Redis cache tooling, and container configurations. The read-only certificate list API and UI support search, sorting, and pagination. Issuance/revocation HTTP routes remain deferred. See docs/data-model.md for approved model invariants.
 
 Runtime: Node.js 24.22.1 and npm 11.19.1, pinned in manifests, `.nvmrc` and Dockerfiles. Prepend `/home/zblxy/.nvm/versions/node/v24.22.1/bin` to PATH in this managed environment; do not use system Node 18.
 
