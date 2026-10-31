@@ -14,7 +14,7 @@
     "db:migrate:dev": "prisma migrate dev",
     "db:migrate:deploy": "prisma migrate deploy",
     "db:seed": "npm run build && node --env-file-if-exists=../../.env prisma/seed.mjs",
-    "test:db": "npm run build && node --test test/integration/models.test.mjs test/integration/certificate-list.test.mjs"
+    "test:db": "npm run build && node --test test/integration/models.test.mjs test/integration/certificate-list.test.mjs test/integration/bulk-issuance.test.mjs"
   },
   "dependencies": {
     "@nestjs/common": "12.3.2",

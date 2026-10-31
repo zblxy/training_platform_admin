@@ -1,5 +1,8 @@
 import { test, expect, type Page } from '@playwright/test';
 const token = 'a'.repeat(43);
+test.beforeEach(async ({ page }) => {
+  await page.route('**/api/certificates/courses', route => route.fulfill({ json: { items: [] } }));
+});
 const item = (index: number) => ({ id: String(index), serialNumber: `CERT-${String(index).padStart(32, '0')}`, learnerName: `Learner ${index}`, courseTitle: 'Safety', issuedAt: '2026-01-01T01:00:00.000Z', issueDate: '2025-12-31', status: index === 0 ? 'revoked' : 'active' });
 async function supplyToken(page: Page) {
   if (await page.locator('details').getAttribute('open') === null) await page.getByText('API token', { exact: true }).click();
@@ -54,11 +57,11 @@ test('loading, unauthorized, malformed responses, failure and keyboard retry', a
   });
   await page.goto('/'); await supplyToken(page);
   await expect(page.getByText('Loading certificates…')).toBeVisible();
-  await expect(page.getByRole('alert')).toContainText('token is invalid');
+  await expect(page.getByRole('region', { name: 'Certificates', exact: true }).getByRole('alert')).toContainText('token is invalid');
   state = 'failure'; await supplyToken(page);
-  await expect(page.getByRole('alert')).toContainText('Unable to load');
+  await expect(page.getByRole('region', { name: 'Certificates', exact: true }).getByRole('alert')).toContainText('Unable to load');
   state = 'malformed'; await page.getByRole('button', { name: 'Retry certificates' }).click();
-  await expect(page.getByRole('alert')).toContainText('Unable to load');
+  await expect(page.getByRole('region', { name: 'Certificates', exact: true }).getByRole('alert')).toContainText('Unable to load');
   state = 'ready'; await page.getByRole('button', { name: 'Retry certificates' }).focus(); await page.keyboard.press('Enter');
   await expect(page.getByText('No certificates match your search.')).toBeVisible();
   if (await page.locator('details').getAttribute('open') === null) await page.getByText('API token', { exact: true }).click();

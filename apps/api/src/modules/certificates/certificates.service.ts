@@ -1,6 +1,6 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { DatabaseService } from '../../common/database/database.service.js';
-import type { CertificateListResponse } from '@training/shared';
+import type { BulkIssuanceOutcome, BulkIssuanceResponse, CertificateListResponse, CourseListResponse } from '@training/shared';
 import type { Prisma } from '../../generated/prisma/client.js';
 import type { ListCertificatesDto } from './list-certificates.dto.js';
 import type { Actor } from '../auth/auth.module.js';
@@ -46,18 +46,51 @@ export class CertificatesService {
       issueDate: row.issueDate.toISOString().slice(0, 10), status: row.revokedAt ? 'revoked' : 'active',
     })) };
   }
+  async courses(actor: Actor): Promise<CourseListResponse> {
+    return { items: await this.db.course.findMany({ where: { tenantId: actor.tenantId },
+      orderBy: [{ title: 'asc' }, { id: 'asc' }], select: { id: true, title: true } }) };
+  }
+  async bulkIssue(actor: Actor, courseId: string): Promise<BulkIssuanceResponse> {
+    const course = await this.db.course.findFirst({ where: { id: courseId, tenantId: actor.tenantId }, select: { id: true } });
+    if (!course) throw new NotFoundException('Course not found');
+    // Snapshot membership once; each enrollment's eligibility is checked under its own lock.
+    const enrollments = await this.db.enrollment.findMany({ where: { tenantId: actor.tenantId, courseId },
+      orderBy: { id: 'asc' }, select: { id: true, learner: { select: { id: true, name: true } } } });
+    const outcomes: BulkIssuanceOutcome[] = [];
+    for (const enrollment of enrollments) {
+      const learner = { enrollmentId: enrollment.id, learnerId: enrollment.learner.id, learnerName: enrollment.learner.name };
+      try {
+        const result = await this.issueWithOutcome(actor, enrollment.id);
+        outcomes.push(result.created
+          ? { ...learner, status: 'issued', certificateId: result.certificate.id, serialNumber: result.certificate.serialNumber }
+          : { ...learner, status: 'skipped', reason: result.certificate.revokedAt ? 'revoked' : 'already_issued' });
+      } catch (error: unknown) {
+        outcomes.push(error instanceof ConflictException
+          ? { ...learner, status: 'skipped', reason: 'incomplete' }
+          : { ...learner, status: 'failed', reason: 'issuance_failed' });
+      }
+    }
+    return { courseId, total: outcomes.length,
+      issued: outcomes.filter(row => row.status === 'issued').length,
+      skipped: outcomes.filter(row => row.status === 'skipped').length,
+      failed: outcomes.filter(row => row.status === 'failed').length, outcomes };
+  }
   async issue(actor: Actor, enrollmentId: string) {
+    return (await this.issueWithOutcome(actor, enrollmentId)).certificate;
+  }
+  private async issueWithOutcome(actor: Actor, enrollmentId: string) {
     return this.db.$transaction(async tx => {
       // One lock per enrollment serializes concurrent issuance without retrying side effects.
       const rows = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM "Enrollment" WHERE id = ${enrollmentId}::uuid AND "tenantId" = ${actor.tenantId}::uuid FOR UPDATE`;
       if (!rows.length) throw new NotFoundException('Enrollment not found');
       const enrollment = await tx.enrollment.findUniqueOrThrow({ where: { id: enrollmentId }, include: { certificate: true } });
-      if (enrollment.certificate) return enrollment.certificate;
+      if (enrollment.certificate) return { certificate: enrollment.certificate, created: false };
       if (enrollment.status !== 'COMPLETED') throw new ConflictException('Only completed enrollments are eligible');
       const tenant = await tx.tenant.findUniqueOrThrow({ where: { id: actor.tenantId } });
       const issuedAt = new Date();
       // The database independently verifies eligibility/date and creates the audit event.
-      return tx.certificate.create({ data: { tenantId: actor.tenantId, enrollmentId, issuedById: actor.id, issuedAt, issueDate: localIssueDate(issuedAt, tenant.timeZone), issueTimeZone: tenant.timeZone } });
+      const certificate = await tx.certificate.create({ data: { tenantId: actor.tenantId, enrollmentId, issuedById: actor.id, issuedAt, issueDate: localIssueDate(issuedAt, tenant.timeZone), issueTimeZone: tenant.timeZone } });
+      return { certificate, created: true };
     });
   }
   async revoke(actor: Actor, certificateId: string, reason: string) {
