@@ -1,6 +1,6 @@
 # Training platform admin
 
-Feature-neutral project initialization: a React placeholder and a NestJS `GET /api/health` endpoint. Health reports API process availability, not database connectivity. No authentication or business models exist; this scaffold is not a production-ready admin product.
+Training admin demo with tenant-scoped data models, transactional certificate issuance/revocation services, generated bearer-token actor identification, and a repeatable demo seed. The frontend remains a placeholder. `GET /api/health` reports process availability, not database connectivity. See [data model and invariants](docs/data-model.md).
 
 ## Runtime and setup
 
@@ -24,7 +24,7 @@ npm run dev --workspace @training/api
 npm run dev --workspace @training/web
 ```
 
-Open http://localhost:5173. Vite proxies `/api` to localhost:3000; override `API_PROXY_TARGET` for another API location. The API reads root `.env`, validates `NODE_ENV`, `PORT`, a PostgreSQL `DATABASE_URL`, and `REDIS_URL` before listening, and exits on startup failure without logging secrets. It does not connect to the database yet. API changes compile before the process watcher reloads. Shared contract changes require `npm run build -w @training/shared` and restarting consumers.
+Open http://localhost:5173. Vite proxies `/api` to localhost:3000; override `API_PROXY_TARGET` for another API location. The API reads root `.env`, validates `NODE_ENV`, `PORT`, a PostgreSQL `DATABASE_URL`, and `REDIS_URL` before listening, and exits on startup failure without logging secrets. Database connections are lazy and used by the authenticated actor endpoint and certificate services. API changes compile before the process watcher reloads. Shared contract changes require `npm run build -w @training/shared` and restarting consumers.
 
 ## Workspace and checks
 
@@ -66,7 +66,7 @@ docker compose -p training-platform-dev logs -f api web redis
 docker compose -p training-platform-dev down
 ```
 
-Local ports default to web 5173, API 3000, PostgreSQL 5432, and Redis 6379, bound to loopback. Set `WEB_PORT`, `API_PORT`, `DB_PORT`, `REDIS_PORT` and use `docker compose -p <isolated-name>` to avoid conflicts. The named `postgres_data` volume persists across stops. Never use `down --volumes` without explicit authorization. Source mounts enable development reload; dependency changes require rebuilds. Compose waits for PostgreSQL and Redis readiness and API health before starting dependent services; health checks retry transient startup failures. There is no database-dependent API operation yet.
+Local ports default to web 5173, API 3000, PostgreSQL 5432, and Redis 6379, bound to loopback. Set `WEB_PORT`, `API_PORT`, `DB_PORT`, `REDIS_PORT` and use `docker compose -p <isolated-name>` to avoid conflicts. The named `postgres_data` volume persists across stops. Never use `down --volumes` without explicit authorization. Source mounts enable development reload; dependency changes require rebuilds. Compose waits for PostgreSQL and Redis readiness and API health before starting dependent services; health checks retry transient startup failures. The actor endpoint requires the initial migration and a seeded admin.
 
 ## Redis cache
 
@@ -114,17 +114,31 @@ Use URI-encoded credentials in connection URLs. Compose requires nonempty produc
 
 ## Prisma and migrations
 
-Prisma **7.10.1** uses `apps/api/prisma.config.ts` for the database URL and `prisma/schema.prisma` for the PostgreSQL provider. [Prisma 7 supports Node 24](https://www.prisma.io/docs/orm/v7/reference/system-requirements). The schema deliberately has **no models**. `db:validate` validates that schema with a configured URL; no connection is needed. Prisma 7.10.1 can generate model-free client artifacts (verified), but these provide no application model operations; generation is unnecessary and intentionally excluded from install/build. Generated artifacts are ignored. No client is imported by the API. See [Prisma generation documentation](https://www.prisma.io/docs/orm/v7/prisma-client/setup-and-configuration/generating-prisma-client).
+Prisma **7.10.1** uses `apps/api/prisma.config.ts` for its URL and `prisma/schema.prisma` for models. Build, typecheck and development scripts generate the ESM TypeScript client into ignored `apps/api/src/generated/prisma`; the API uses the PostgreSQL driver adapter. Generation/builds need no live database; a nonfunctional fallback URL is used if no URL is configured. Database operations require an explicit working `DATABASE_URL`.
 
-The real CLI commands are available for later approved models:
+Apply the reviewed initial migration and seed a local demo database explicitly:
 
 ```sh
-npm run db:generate -w @training/api
-npm run db:migrate:dev -w @training/api -- --name <name>
+npm run db:validate
 npm run db:migrate:deploy -w @training/api
+npm run db:seed
 ```
 
-There are no migrations to apply, no seed data, and no database integration suite yet. Seed/integration scripts are deferred rather than reporting success without exercising behavior. After models are approved, review the generated SQL, test migrations and constraints against an isolated database, and generate the client using the appropriate PostgreSQL driver adapter. Do not use `db push` or database reset on shared data.
+The seed creates two tenants (`Asia/Shanghai` and `America/New_York`), one admin per tenant, two courses per tenant, and four learners enrolled in both courses. It includes incomplete, completed, certified, and revoked examples. Rerunning preserves existing records and certificate/audit history. The seed is disabled when `NODE_ENV=production`.
+
+Generated 256-bit bearer tokens are stored only in the ignored root `.demo-tokens.json` with mode `0600`, excluded from Docker build context, and never printed. Database admins store only SHA-256 hashes. Keep this file private. Repeated seeds reuse its tokens; losing it and reseeding rotates the two demo admins' tokens. `DEMO_TOKEN_FILE` can select a separate token file. A partially failed seed can be rerun; it does not reset data. Use demo databases only.
+
+`GET /api/actor` requires `Authorization: Bearer <token>` and returns only admin ID, tenant ID and name. There is no login UI. Certificate operations are backend services in this phase, with no issuance/revocation HTTP routes or feature UI. Future protected routes must use `ActorGuard` and pass its actor to the services. Tokens have no expiry in this demo; replace an admin's token hash to rotate/revoke access. Never embed tokens in frontend source or URLs.
+
+Run database integration checks only against an isolated test database:
+
+```sh
+TEST_DATABASE_URL='postgresql://<user>:<password>@127.0.0.1:<port>/<test-db>' npm run test:db
+```
+
+The suite requires permission to create/drop a unique temporary schema. It applies migrations, checks a second deployment is a no-op, exercises constraints/concurrency/authentication and repeatable seeding, then drops only its own schema and removes its own temporary token file. It never migrates the configured development `DATABASE_URL`. Unit tests and existing health/browser smoke tests still require no running database. Redis integration tests remain separate.
+
+For later schema changes use `npm run db:migrate:dev -w @training/api -- --name <name>`, review SQL, and preserve the custom checks and triggers in the initial migration. Do not use `db push` or reset against shared data. Use additive migrations during rolling updates; remove old fields only after all instances and the rollback window no longer require them.
 
 The API runtime image retains Prisma CLI, config and schema (and will copy migrations when added). Apply committed migrations as a separate authorized deployment job, never automatically in application startup:
 
@@ -132,4 +146,4 @@ The API runtime image retains Prisma CLI, config and schema (and will copy migra
 docker compose -f compose.yaml -f compose.production.yaml run --rm api npm run db:migrate:deploy --workspace @training/api
 ```
 
-Before shipping schema changes, take and verify a database backup, review locking/data conversion risks, and prepare a forward repair or tested restore procedure. On failure, stop rollout, inspect migration state and repair deliberately; do not automatically retry destructive SQL or assume application rollback reverses database changes. Actual migration/restore verification remains deferred until models and migrations exist.
+Before shipping schema changes, take and verify a database backup, review locking/data conversion risks, and prepare a forward repair or tested restore procedure. On failure, stop rollout, inspect migration state and repair deliberately; do not automatically retry destructive SQL or assume application rollback reverses database changes. Initial migration behavior is covered by isolated database tests; backup restoration and remote deployment are separate operational checks.

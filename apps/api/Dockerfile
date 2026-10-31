@@ -7,7 +7,7 @@ COPY apps/web/package.json apps/web/package.json
 RUN npm install --global npm@11.19.1 && npm ci
 FROM dependencies AS development
 COPY --chown=node:node . .
-RUN npm run build -w @training/shared && chown node:node /app /app/apps /app/apps/api /app/apps/web /app/packages /app/packages/shared
+RUN npm run db:generate -w @training/api && npm run build -w @training/shared && chown node:node /app /app/apps /app/apps/api /app/apps/web /app/packages /app/packages/shared
 RUN chown -R node:node /app/packages/shared/dist
 USER node
 WORKDIR /app/apps/api

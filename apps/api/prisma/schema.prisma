@@ -1,8 +1,104 @@
-// No business models have been approved. Client generation/migrations are deferred.
 generator client {
   provider = "prisma-client"
-  output   = "../generated/prisma"
+  output = "../src/generated/prisma"
+  moduleFormat = "esm"
+  importFileExtension = "js"
 }
 datasource db {
   provider = "postgresql"
+}
+enum CompletionStatus {
+  INCOMPLETE
+  COMPLETED
+}
+enum AuditAction {
+  ISSUED
+  REVOKED
+}
+model Tenant {
+  id String @id @default(uuid()) @db.Uuid
+  name String
+  timeZone String
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  admins Admin[]
+  courses Course[]
+  learners Learner[]
+}
+model Admin {
+  id String @id @default(uuid()) @db.Uuid
+  tenantId String @db.Uuid
+  name String
+  tokenHash String @unique @db.Char(64)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  issued Certificate[] @relation("Issuer")
+  revoked Certificate[] @relation("Revoker")
+  auditEvents AuditEvent[]
+  @@unique([tenantId, id])
+}
+model Course {
+  id String @id @default(uuid()) @db.Uuid
+  tenantId String @db.Uuid
+  title String
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  enrollments Enrollment[]
+  @@unique([tenantId, id])
+}
+model Learner {
+  id String @id @default(uuid()) @db.Uuid
+  tenantId String @db.Uuid
+  name String
+  email String
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  enrollments Enrollment[]
+  @@unique([tenantId, id])
+  @@unique([tenantId, email])
+}
+model Enrollment {
+  id String @id @default(uuid()) @db.Uuid
+  tenantId String @db.Uuid
+  courseId String @db.Uuid
+  learnerId String @db.Uuid
+  status CompletionStatus @default(INCOMPLETE)
+  completedAt DateTime? @db.Timestamptz(3)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  course Course @relation(fields: [tenantId, courseId], references: [tenantId, id], onDelete: Restrict)
+  learner Learner @relation(fields: [tenantId, learnerId], references: [tenantId, id], onDelete: Restrict)
+  certificate Certificate?
+  @@unique([tenantId, id])
+  @@unique([tenantId, courseId, learnerId])
+  @@index([tenantId, status])
+}
+model Certificate {
+  id String @id @default(uuid()) @db.Uuid
+  tenantId String @db.Uuid
+  enrollmentId String @unique @db.Uuid
+  issuedById String @db.Uuid
+  issuedAt DateTime @default(now()) @db.Timestamptz(3)
+  issueDate DateTime @db.Date
+  issueTimeZone String
+  revokedAt DateTime? @db.Timestamptz(3)
+  revokedById String? @db.Uuid
+  revocationReason String?
+  enrollment Enrollment @relation(fields: [tenantId, enrollmentId], references: [tenantId, id], onDelete: Restrict)
+  issuer Admin @relation("Issuer", fields: [tenantId, issuedById], references: [tenantId, id], onDelete: Restrict)
+  revoker Admin? @relation("Revoker", fields: [tenantId, revokedById], references: [tenantId, id], onDelete: Restrict)
+  auditEvents AuditEvent[]
+  @@unique([tenantId, id])
+  @@unique([tenantId, enrollmentId])
+  @@index([tenantId, issuedAt])
+}
+model AuditEvent {
+  id String @id @default(uuid()) @db.Uuid
+  tenantId String @db.Uuid
+  certificateId String @db.Uuid
+  actorId String @db.Uuid
+  action AuditAction
+  occurredAt DateTime @db.Timestamptz(3)
+  certificate Certificate @relation(fields: [tenantId, certificateId], references: [tenantId, id], onDelete: Restrict)
+  actor Admin @relation(fields: [tenantId, actorId], references: [tenantId, id], onDelete: Restrict)
+  @@unique([certificateId, action])
+  @@index([tenantId, occurredAt])
 }

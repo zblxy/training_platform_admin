@@ -19,7 +19,9 @@
     "test": "npm run build -w @training/shared && npm run test -w @training/api",
     "test:e2e": "npm run build && npm run test:e2e -w @training/web",
     "db:validate": "npm run db:validate -w @training/api",
-    "test:config": "node scripts/check-compose.mjs"
+    "test:config": "node scripts/check-compose.mjs",
+    "test:db": "npm run build -w @training/shared && npm run test:db -w @training/api",
+    "db:seed": "npm run build -w @training/shared && npm run db:seed -w @training/api"
   },
   "devDependencies": {
     "@types/node": "24.19.2",

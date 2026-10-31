@@ -12,7 +12,7 @@ These instructions apply to the entire repository. This project is an internal a
 
 ## Repository status
 
-The repository now implements a feature-neutral React/Vite web page, NestJS API health endpoint, shared public health contract, empty PostgreSQL Prisma schema, a reusable Redis cache module, smoke tests, and development/production container configurations. No business features, authentication, models, migrations or seeds are implemented.
+The repository implements a React/Vite placeholder, NestJS health and bearer-authenticated actor endpoints, tenant-scoped Prisma models, transactional certificate issuance/revocation services, database-generated audit events, a repeatable demo seed, Redis cache tooling, and container configurations. Certificate HTTP routes and business UI are deferred. See docs/data-model.md for approved model invariants.
 
 Runtime: Node.js 24.22.1 and npm 11.19.1, pinned in manifests, `.nvmrc` and Dockerfiles. Prepend `/home/zblxy/.nvm/versions/node/v24.22.1/bin` to PATH in this managed environment; do not use system Node 18.
 
@@ -20,7 +20,7 @@ Runtime: Node.js 24.22.1 and npm 11.19.1, pinned in manifests, `.nvmrc` and Dock
 
 - Language: TypeScript with strict type checking.
 - Frontend: React and Vite.
-- Backend: NestJS with global server-side validation/error handling; authorization is deferred until protected features are approved.
+- Backend: NestJS with global server-side validation/error handling; bearer actor identification is implemented; future protected routes must use the actor guard and tenant scoping.
 - Database: PostgreSQL, managed through Prisma schema and migrations.
 - Cache: Redis with mandatory write TTLs, bounded waits, eviction, and graceful cache misses on outages. No persistence or automatic business-data caching.
 - Workspace tooling: npm workspaces with a root lockfile (commit only when authorized).
@@ -107,12 +107,12 @@ The scaffold implements the commands below except entries explicitly marked defe
 | Type check | `npm run typecheck` |
 | Run unit tests | `npm test` |
 | Redis integration tests (explicit TEST_REDIS_URL required) | `npm run test:cache --workspace @training/api` |
-| Run API/database integration tests against an isolated test database | Deferred until models exist; no integration script |
+| Run database integration tests (explicit isolated TEST_DATABASE_URL required) | `npm run test:db` |
 | Run browser workflows | `npm run test:e2e --workspace @training/web` |
-| Generate Prisma client (unneeded model-free artifacts with empty schema) | `npm run db:generate --workspace @training/api` |
+| Generate Prisma client (also run by build/typecheck/dev) | `npm run db:generate --workspace @training/api` |
 | Create and apply a development migration (after models exist) | `npm run db:migrate:dev --workspace @training/api -- --name <name>` |
 | Apply committed migrations | `npm run db:migrate:deploy --workspace @training/api` |
-| Seed development/test data explicitly | Deferred until approved seed data exists; no seed script |
+| Seed demo data explicitly (never production) | `npm run db:seed` |
 | Validate local Compose configuration | `docker compose -p training-platform-dev config --quiet` |
 | Build and start local containers | `docker compose -p training-platform-dev up --build -d --wait` |
 | Inspect container status | `docker compose -p training-platform-dev ps` |

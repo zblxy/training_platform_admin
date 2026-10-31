@@ -6,3 +6,5 @@ dist/
 playwright-report/
 test-results/
 apps/api/generated/
+apps/api/src/generated/
+.demo-tokens.json

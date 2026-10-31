@@ -1,0 +1,42 @@
+# Data model
+
+Tenant owns Admin, Course and Learner. Enrollment joins a learner and course within one tenant. Each enrollment can have one permanent Certificate. Each certificate has one ISSUED audit event and, after revocation, one REVOKED audit event.
+
+```mermaid
+erDiagram
+  Tenant ||--|{ Admin : contains
+  Tenant ||--o{ Course : owns
+  Tenant ||--o{ Learner : owns
+  Course ||--o{ Enrollment : includes
+  Learner ||--o{ Enrollment : enrolls
+  Enrollment ||--o| Certificate : receives
+  Admin ||--o{ Certificate : issues
+  Certificate ||--|{ AuditEvent : records
+  Admin ||--o{ AuditEvent : performs
+```
+
+## Identity and tenant boundaries
+
+IDs are UUIDs. Admins and learners are separate identities, each belonging to one tenant. Learner email is unique within a tenant. Each learner/course pair has one enrollment; repeated attempts are outside this scope. Composite foreign keys include tenantId for enrollments, certificate actors, and audit actors, preventing cross-tenant references. ActorGuard resolves an opaque bearer token to an admin; only its hash is persisted, directly on Admin. Tokens are demo credentials with no login or expiration flow.
+
+Tenant creation and its first admin must share one transaction. A deferred constraint verifies at least one admin at commit. Admin membership changes lock the tenant row so concurrent removals cannot remove every admin. Admin tenant identity cannot change. Normal database permissions should restrict migration/DDL privileges; an owner capable of disabling triggers can bypass database invariants.
+
+## Enrollment and certificate lifecycle
+
+Enrollment stores INCOMPLETE with no completedAt, or COMPLETED with a completedAt timestamp. Display status is incomplete/completed, overridden to certified while its certificate is active. Revocation returns the display status to completed, retaining the revoked certificate separately. `enrollmentDisplayStatus` implements this projection.
+
+CertificatesService locks the tenant-scoped enrollment before issuance. Only COMPLETED is eligible. The unique enrollment reference allows at most one certificate for that learner/course forever. Concurrent or repeated issuance returns the same certificate, including after revocation, without new audit events. Issuance fields and certificate identity are immutable. Certificates cannot be deleted. An enrollment with a certificate must remain completed.
+
+Revocation locks the tenant-scoped certificate. It requires an actor, timestamp and nonblank reason (up to 1000 characters). It is final; subsequent revocations return the existing result. Reissuance is unsupported. Services accept an authenticated Actor; future transports must obtain it from ActorGuard rather than client-provided IDs.
+
+The database independently checks eligibility and tenant relationships. Certificate transition triggers create audit events atomically with issuance/revocation; a failed audit insert rolls back the certificate operation. Audit rows are immutable, cannot be inserted directly, and have a unique certificate/action pair. Truncation of certificate/audit history is rejected. A successful issuance therefore has exactly one ISSUED event, and a successful revocation exactly one REVOKED event, with matching actor/timestamp. Migration triggers are essential behavior beyond Prisma's schema representation.
+
+## Tenant-local issue date
+
+Tenant.timeZone is a PostgreSQL-recognized time zone; seed values are IANA identifiers. At issuance, the service records issuedAt as a UTC instant, issueDate as a PostgreSQL DATE derived in the tenant's zone, and issueTimeZone as the zone snapshot. The database verifies the date independently. Changing the tenant zone never changes historical dates. Revocation/audit timestamps are instants, not dates. The application and PostgreSQL timezone databases should be kept current and aligned.
+
+## Verification and limits
+
+Database tests use a unique temporary schema on an explicitly selected isolated test database. They apply the real migration and exercise concurrent requests, database bypass attempts, tenant foreign keys, completion checks, final revocation, immutable audit history, tokens and repeatable seeds. Unit tests cover dates across UTC midnight and DST transitions. Health and browser smoke tests remain database-independent.
+
+This phase exposes only health and the authenticated actor endpoint. Certificate services can be exercised by seeds/tests; certificate operation endpoints, feature UI, bulk operations, exports, and administrative CRUD are future scopes. No automatic business-data cache is introduced. Migration rollout and seed execution are explicit actions; the running development database is not changed by implementation verification.
